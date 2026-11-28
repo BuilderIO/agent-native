@@ -28,6 +28,7 @@ export default defineAction({
         ),
     })
     .strict(),
+  mcpTool: false,
   run: async (args): Promise<SlidesNotificationPreferences> => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("Sign in required");

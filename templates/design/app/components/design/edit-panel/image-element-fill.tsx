@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { IconEye, IconEyeOff } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   Popover,
@@ -221,6 +221,21 @@ function AdjustmentSlider({
   onCommit: (value: number) => void;
 }) {
   const position = (value + 100) / 2;
+  const activeDragRef = useRef<{
+    pointerId: number;
+    latestValue: number;
+    changed: boolean;
+    committed: boolean;
+    canceled: boolean;
+  } | null>(null);
+  const commitLostDrag = (pointerId: number) => {
+    const drag = activeDragRef.current;
+    if (!drag || drag.pointerId !== pointerId) return;
+    if (drag.changed && !drag.committed && !drag.canceled) {
+      drag.committed = true;
+      onCommit(drag.latestValue);
+    }
+  };
   return (
     <InspectorGrid className="items-center">
       <InspectorGridCell span={10}>
@@ -236,21 +251,79 @@ function AdjustmentSlider({
           min={-100}
           max={100}
           step={1}
-          onValueChange={([next]) => onChange(next ?? 0)}
-          onValueCommit={([next]) => onCommit(next ?? 0)}
+          onPointerDown={(event) => {
+            if (event.button !== 0) {
+              event.preventDefault();
+              return;
+            }
+            activeDragRef.current = {
+              pointerId: event.pointerId,
+              latestValue: value,
+              changed: false,
+              committed: false,
+              canceled: false,
+            };
+          }}
+          onValueChange={(values) => {
+            for (const resolved of values) {
+              if (activeDragRef.current) {
+                activeDragRef.current.latestValue = resolved;
+                activeDragRef.current.changed = true;
+              }
+              onChange(resolved);
+              break;
+            }
+          }}
+          onValueCommit={(values) => {
+            for (const resolved of values) {
+              if (activeDragRef.current) {
+                if (
+                  activeDragRef.current.committed ||
+                  activeDragRef.current.canceled
+                ) {
+                  return;
+                }
+                activeDragRef.current.committed = true;
+              }
+              onCommit(resolved);
+              break;
+            }
+          }}
+          onPointerUp={(event) => {
+            const target = event.target as Element | null;
+            const hasCapture =
+              typeof target?.hasPointerCapture === "function" &&
+              target.hasPointerCapture(event.pointerId);
+            if (!hasCapture) commitLostDrag(event.pointerId);
+          }}
+          onPointerCancel={(event) => {
+            if (activeDragRef.current?.pointerId === event.pointerId) {
+              activeDragRef.current.canceled = true;
+            }
+          }}
+          onLostPointerCapture={(event) => commitLostDrag(event.pointerId)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              if (activeDragRef.current) {
+                activeDragRef.current.canceled = true;
+              }
+            } else {
+              activeDragRef.current = null;
+            }
+          }}
           className="relative flex h-4 w-full touch-none select-none items-center"
         >
           <SliderPrimitive.Track className="relative h-4 w-full grow overflow-hidden rounded-full border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
             {value !== 0 ? (
               <>
                 <span
-                  className="absolute inset-y-0 rounded-full bg-[var(--design-editor-accent-color)]"
+                  className="pointer-events-none absolute inset-y-0 rounded-full bg-[var(--design-editor-accent-color)]"
                   style={{
                     left: `${Math.min(50, position)}%`,
                     width: `${Math.abs(position - 50)}%`,
                   }}
                 />
-                <span className="absolute top-1/2 left-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background" />
+                <span className="pointer-events-none absolute top-1/2 left-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background" />
               </>
             ) : null}
           </SliderPrimitive.Track>
@@ -262,7 +335,7 @@ function AdjustmentSlider({
             }
           >
             {value !== 0 ? (
-              <span className="size-1.5 rounded-full bg-[var(--design-editor-accent-color)]" />
+              <span className="pointer-events-none size-1.5 rounded-full bg-[var(--design-editor-accent-color)]" />
             ) : null}
           </SliderPrimitive.Thumb>
         </SliderPrimitive.Root>

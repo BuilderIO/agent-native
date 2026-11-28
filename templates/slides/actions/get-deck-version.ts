@@ -13,6 +13,7 @@ export default defineAction({
     versionId: z.string().describe("Version snapshot ID"),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ deckId, versionId }) => {
     const access = await assertAccess("deck", deckId, "viewer");
     const ownerEmail = access.resource.ownerEmail as string;

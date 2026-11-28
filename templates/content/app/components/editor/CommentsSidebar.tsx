@@ -154,6 +154,8 @@ import {
   AI_RESULT_LEFT_ALONE_MS,
   CommentAiConversation,
   CommentAiRequestStatus,
+  CommentAiSuggestionReady,
+  isCommentAiRequestActive,
   isCommentAiWorkingOn,
   latestCommentAiRequest,
   startCommentAiSubmission,
@@ -1729,8 +1731,6 @@ function CommentsSidebarBody({
     const touch = touchCountRef.current;
     setStackTouches((prev) => new Map(prev).set(threadId, touch));
   }, []);
-  // A thread just posted is selected without moving the open stack.
-  const postedThreadIdRef = useRef<string | null>(null);
   const focusStackKeyRef = useRef<string | null>(null);
   const commentStacks = useMemo(
     () => (stacksEnabled ? groupCommentStacks(openThreads, threadBlocks) : []),
@@ -1810,9 +1810,7 @@ function CommentsSidebarBody({
     if (!stacksEnabled || !selectedThreadId || selectedThreadId === previous)
       return;
     touchThread(selectedThreadId);
-    const posted = postedThreadIdRef.current === selectedThreadId;
-    postedThreadIdRef.current = null;
-    if (!posted) openStackOn(selectedThreadId);
+    openStackOn(selectedThreadId);
   }, [openStackOn, selectedThreadId, stacksEnabled, touchThread]);
   useEffect(() => {
     if (!openStack) return;
@@ -2394,11 +2392,8 @@ function CommentsSidebarBody({
           });
       pendingDraft.finishSubmission(clientOperationId);
       setPendingHandoff(null);
-      // The new thread is its stack's front. Selecting it leaves its stack
-      // as it was, open or folded.
       touchThread(result.threadId);
       if (pendingCommentRef.current?.id === id) {
-        postedThreadIdRef.current = result.threadId;
         onPendingDone(id, result.threadId);
       }
       return { id: result.id, threadId: result.threadId };
@@ -3218,14 +3213,65 @@ function CommentsSidebarBody({
   const acceptBlocked = (suggestion: ResourceSuggestion | DraftSuggestion) =>
     !canDecideFieldSuggestions && suggestionBlocksFieldId(suggestion) !== null;
 
+  const stackAiState = (member: CommentThread) => {
+    if (!commentAi) return null;
+    const request = latestCommentAiRequest(commentAi.requests, member.threadId);
+    if (!request) return null;
+    const continuation = commentAi.continuations.get(request.operationId);
+    if (
+      isCommentAiRequestActive(request) ||
+      continuation?.status === "queued" ||
+      continuation?.status === "running"
+    )
+      return { thread: member, request, continuation, rank: 3 };
+    if (commentAi.startingThreadIds.has(member.threadId)) return null;
+    if (
+      request.status === "failed" ||
+      request.status === "needs-review" ||
+      continuation?.status === "errored" ||
+      continuation?.status === "truncated" ||
+      continuation?.status === "unavailable"
+    )
+      return { thread: member, request, continuation, rank: 2 };
+    const waiting = (threadSuggestions.get(member.threadId) ?? []).filter(
+      (suggestion) => suggestion.status === "pending",
+    );
+    const suggested = commentAi.requests
+      .filter((candidate) => candidate.threadId === member.threadId)
+      .sort(
+        (left, right) =>
+          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+      )
+      .find((candidate) =>
+        waiting.some(
+          (suggestion) =>
+            suggestion.metadata?.commentAiRequestId === candidate.operationId,
+        ),
+      );
+    return suggested
+      ? { thread: member, request: suggested, continuation: undefined, rank: 1 }
+      : null;
+  };
+
   const renderFoldedStack = (
     stack: CommentStack<CommentThread>,
     layoutId: string,
   ) => {
     const passed = clipStackFronts.get(stack.key);
+    const touched = commentStackFront(stack.threads, stackTouches);
+    let ai: ReturnType<typeof stackAiState> = null;
+    for (const member of [
+      touched,
+      ...stack.threads.filter((other) => other !== touched),
+    ]) {
+      const state = stackAiState(member);
+      if (state && (!ai || state.rank > ai.rank)) ai = state;
+    }
     const front =
       stack.threads.find((member) => member.threadId === passed) ??
-      commentStackFront(stack.threads, stackTouches);
+      ai?.thread ??
+      touched;
+    const aiShown = ai?.thread === front ? ai : null;
     return (
       <CommentStackCard
         stackKey={stack.key}
@@ -3235,6 +3281,32 @@ function CommentsSidebarBody({
         frontPlaced={placedThreadIds === openThreadIds}
         shownFronts={shownStackFronts}
         quotes={threadQuotes}
+        aiStatus={
+          !commentAi || !aiShown ? null : aiShown.rank === 1 ? (
+            <CommentAiSuggestionReady request={aiShown.request} />
+          ) : (
+            <CommentAiRequestStatus
+              request={aiShown.request}
+              {...(aiShown.continuation
+                ? { continuation: aiShown.continuation }
+                : {})}
+              stopping={commentAi.stoppingRequestIds.has(
+                aiShown.request.operationId,
+              )}
+              onRetry={() => commentAi.retry(aiShown.request)}
+              onStop={async () => {
+                try {
+                  await commentAi.stop(aiShown.request);
+                } catch (error) {
+                  toast.error(t("empty.genericError"), {
+                    description:
+                      error instanceof Error ? error.message : undefined,
+                  });
+                }
+              }}
+            />
+          )
+        }
         isActive={stack.threads.some(
           (member) => member.threadId === activeThreadId,
         )}
@@ -3406,7 +3478,11 @@ function CommentsSidebarBody({
     // does not post the same reply twice. A failed start keeps the reply: the
     // request may have been saved before its response was lost.
     const submitAi = async (selection: CommentAiSubmitPayload) => {
-      if (!commentAi || !thread.comments[0] || aiWorking) return;
+      if (!commentAi || !thread.comments[0]) return;
+      if (aiWorking) {
+        toast(t("comments.aiBusyInThread"));
+        return;
+      }
       const instructions = replyDrafts.get(thread.threadId).text.trim();
       if (!instructions) return;
       const rootCommentId = thread.comments[0].id;
@@ -3436,6 +3512,7 @@ function CommentsSidebarBody({
       // before the delete: a delete whose response is lost may still have
       // removed the reply, and a leftover reply is visible. A reply typed
       // meanwhile keeps the draft, so the posted one stays.
+      if (outcome === "busy") toast(t("comments.aiBusyInThread"));
       if (
         outcome === "busy" &&
         replyDrafts.restoreSubmittedDraft(thread.threadId, reply.operationId)

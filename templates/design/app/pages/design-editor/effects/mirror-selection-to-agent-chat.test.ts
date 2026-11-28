@@ -11,7 +11,10 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 
 import type { ElementInfo } from "@/components/design/types";
 
-import { runMirrorSelectionToAgentChat } from "./mirror-selection-to-agent-chat";
+import {
+  flushPendingMirroredSelectionToAgentChat,
+  runMirrorSelectionToAgentChat,
+} from "./mirror-selection-to-agent-chat";
 
 function makeRefs() {
   return {
@@ -122,5 +125,83 @@ describe("runMirrorSelectionToAgentChat", () => {
     expect(published.context).toContain(imageUrl);
     expect(published.context).not.toMatch(/data:image|base64,/i);
     expect(() => assertNoInlineImageBytes(published)).not.toThrow();
+  });
+
+  it("coalesces rapid same-element excerpt edits when excerptDebounceMs is set and flushes before an agent turn", () => {
+    vi.useFakeTimers();
+    try {
+      const refs = makeRefs();
+      const debounceTimerRef = {
+        current: null as ReturnType<typeof setTimeout> | null,
+      };
+      const pendingItemRef = {
+        current: null as {
+          key: string;
+          title: string;
+          context: string;
+          openSidebar: boolean;
+          focus: boolean;
+        } | null,
+      };
+      const withDebounce = (content: string, element = selectedElement) => ({
+        ...baseArgs(refs, content),
+        selectedElement: element,
+        excerptDebounceMs: 300,
+        debounceTimerRef,
+        pendingItemRef,
+      });
+
+      runMirrorSelectionToAgentChat(
+        withDebounce('<div style="width:100px">A</div>'),
+      );
+      expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
+
+      runMirrorSelectionToAgentChat(
+        withDebounce('<div style="width:200px">A</div>'),
+      );
+      runMirrorSelectionToAgentChat(
+        withDebounce('<div style="width:200px;height:120px">A</div>'),
+      );
+      runMirrorSelectionToAgentChat(
+        withDebounce('<div style="width:200px;height:120px;left:40px">A</div>'),
+      );
+      expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(300);
+      expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(2);
+      const debouncedCall = setAgentChatContextItemMock.mock.calls[1]?.[0] as
+        | { context: string }
+        | undefined;
+      expect(debouncedCall?.context).toContain(
+        "width:200px;height:120px;left:40px",
+      );
+
+      runMirrorSelectionToAgentChat(
+        withDebounce('<div style="width:320px;height:120px;left:40px">A</div>'),
+      );
+      expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(2);
+      flushPendingMirroredSelectionToAgentChat({
+        debounceTimerRef,
+        pendingItemRef,
+        composerContextHasOurKeyRef: refs.composerContextHasOurKeyRef,
+      });
+      expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(3);
+      const flushedCall = setAgentChatContextItemMock.mock.calls[2]?.[0] as
+        | { context: string }
+        | undefined;
+      expect(flushedCall?.context).toContain("width:320px");
+
+      const otherElement = {
+        ...selectedElement,
+        sourceId: "node-2",
+        selector: "#node-2",
+      } as unknown as ElementInfo;
+      runMirrorSelectionToAgentChat(
+        withDebounce('<div id="node-2">B</div>', otherElement),
+      );
+      expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

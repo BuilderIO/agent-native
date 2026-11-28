@@ -179,7 +179,13 @@ describe("thumbnail sweeper", () => {
   });
 
   describe("unrecoverable recordings", () => {
-    const row = { id: "zzqa-1", ownerEmail: "qa@example.com", orgId: null };
+    const row = {
+      id: "zzqa-1",
+      ownerEmail: "qa@example.com",
+      orgId: null,
+      thumbnailStatus: "pending",
+      thumbnailFailureReason: null,
+    };
 
     it("counts a retryable failure and keeps the recording eligible until the cap", async () => {
       mockRows.rows = [row];
@@ -210,6 +216,7 @@ describe("thumbnail sweeper", () => {
       expect(mockMarkThumbnailFailed).toHaveBeenCalledWith(
         "zzqa-1",
         expect.stringContaining("gave up after 5 attempts"),
+        { thumbnailStatus: "pending", thumbnailFailureReason: null },
       );
     });
 

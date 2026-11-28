@@ -1811,8 +1811,14 @@ function findLocalPackage(name: string): string | undefined {
 }
 
 function runNpm(args: string[], options: ExecFileSyncOptions): void {
-  const [command, commandArgs, shell] = shimSpawnTarget("npm", args);
-  execFileSync(command, commandArgs, { ...options, shell });
+  const [command, commandArgs, shell, shimEnv] = shimSpawnTarget("npm", args);
+  execFileSync(command, commandArgs, {
+    ...options,
+    shell,
+    ...(shimEnv
+      ? { env: { ...(options.env ?? process.env), ...shimEnv } }
+      : {}),
+  });
 }
 
 function localPackageTarball(packageDir: string): string {

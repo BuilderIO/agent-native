@@ -513,12 +513,14 @@ export async function addHostedClipRecordingBytes(input: {
   userId?: string | null;
   ownerEmail?: string | null;
   additionalBytes: number;
+  whileCharging?: () => Promise<void>;
 }) {
   const userId = await resolveAllowanceUserId(input);
   return addHostedClipRetainedBytesWithinCap({
     recordingId: input.recordingId,
     userId,
     additionalBytes: input.additionalBytes,
+    ...(input.whileCharging ? { whileCharging: input.whileCharging } : {}),
   });
 }
 

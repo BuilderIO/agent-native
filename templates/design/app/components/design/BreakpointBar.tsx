@@ -8,7 +8,7 @@ import {
   IconPlus,
   IconViewportWide,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -106,7 +106,7 @@ export interface BreakpointDeviceControlProps {
   className?: string;
 }
 
-export function BreakpointDeviceControl({
+export const BreakpointDeviceControl = memo(function BreakpointDeviceControl({
   breakpoints,
   activeWidthPx,
   baseWidthPx,
@@ -122,15 +122,32 @@ export function BreakpointDeviceControl({
 }: BreakpointDeviceControlProps) {
   const t = useT();
   const [addOpen, setAddOpen] = useState(false);
-  const canMutateBreakpoints = canEdit && !mutationPending;
   const [customWidth, setCustomWidth] = useState("");
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
   const [widthDraft, setWidthDraft] = useState("");
 
-  const ordered = [...breakpoints].sort((a, b) => b.widthPx - a.widthPx);
-  const existingWidths = ordered.map((bp) => bp.widthPx);
-  const presets = availableBreakpointPresets(existingWidths);
-  const devicePresets = extraBreakpointWidthPresets(existingWidths);
+  const ordered = useMemo(
+    () => [...breakpoints].sort((a, b) => b.widthPx - a.widthPx),
+    [breakpoints],
+  );
+  const existingWidths = useMemo(
+    () => ordered.map((bp) => bp.widthPx),
+    [ordered],
+  );
+  const presets = useMemo(
+    () => (addOpen ? availableBreakpointPresets(existingWidths) : []),
+    [addOpen, existingWidths],
+  );
+  const devicePresets = useMemo(
+    () => (addOpen ? extraBreakpointWidthPresets(existingWidths) : []),
+    [addOpen, existingWidths],
+  );
+  const effectiveMenuOpenFor =
+    canEdit &&
+    menuOpenFor !== null &&
+    ordered.some((bp) => bp.id === menuOpenFor)
+      ? menuOpenFor
+      : null;
   const baseActive = activeWidthPx === undefined;
 
   const submitCustomWidth = () => {
@@ -183,12 +200,18 @@ export function BreakpointDeviceControl({
           Framer click-to-target model). */}
         {ordered.map((breakpoint) => {
           const active = activeWidthPx === breakpoint.widthPx;
-          const menuOpen = menuOpenFor === breakpoint.id;
+          const menuOpen = effectiveMenuOpenFor === breakpoint.id;
           const showMenuAffordance = Boolean(
-            canMutateBreakpoints &&
+            canEdit &&
             (onRemove || onChangeWidth) &&
-            (active || menuOpen),
+            (menuOpen || (!mutationPending && active)),
           );
+          const otherWidths = menuOpen
+            ? existingWidths.filter((width) => width !== breakpoint.widthPx)
+            : null;
+          const widthDraftInvalid =
+            otherWidths !== null &&
+            parseBreakpointWidthInput(widthDraft, otherWidths) === null;
           return (
             <div key={breakpoint.id} className="relative flex items-center">
               <button
@@ -247,6 +270,7 @@ export function BreakpointDeviceControl({
                           max={3840}
                           value={widthDraft}
                           autoFocus
+                          disabled={mutationPending}
                           onChange={(event) =>
                             setWidthDraft(event.target.value)
                           }
@@ -254,11 +278,10 @@ export function BreakpointDeviceControl({
                             event.stopPropagation();
                             if (event.key !== "Enter") return;
                             event.preventDefault();
+                            if (mutationPending || otherWidths === null) return;
                             const widthPx = parseBreakpointWidthInput(
                               widthDraft,
-                              existingWidths.filter(
-                                (width) => width !== breakpoint.widthPx,
-                              ),
+                              otherWidths,
                             );
                             if (widthPx === null) return;
                             setMenuOpenFor(null);
@@ -266,14 +289,7 @@ export function BreakpointDeviceControl({
                               onChangeWidth(breakpoint.id, widthPx);
                             }
                           }}
-                          aria-invalid={
-                            parseBreakpointWidthInput(
-                              widthDraft,
-                              existingWidths.filter(
-                                (width) => width !== breakpoint.widthPx,
-                              ),
-                            ) === null
-                          }
+                          aria-invalid={widthDraftInvalid}
                           className="h-6 px-1.5 !text-[11px] tabular-nums aria-invalid:border-destructive"
                           aria-label={t(
                             "designEditor.breakpointBar.changeWidth",
@@ -287,7 +303,9 @@ export function BreakpointDeviceControl({
                     {onRemove ? (
                       <DropdownMenuItem
                         variant="destructive"
+                        disabled={mutationPending}
                         onSelect={() => {
+                          if (mutationPending) return;
                           setMenuOpenFor(null);
                           onRemove(breakpoint.id);
                         }}
@@ -427,4 +445,4 @@ export function BreakpointDeviceControl({
       ) : null}
     </div>
   );
-}
+});

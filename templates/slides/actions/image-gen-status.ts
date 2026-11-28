@@ -7,6 +7,7 @@ export default defineAction({
     "Check which local image generation providers are configured. Slides uses a local provider by default; Assets is opt-in for a requested brand library or an Assets-exclusive capability.",
   schema: z.object({}),
   http: false,
+  mcpTool: "search",
   run: async () => {
     const { getConfiguredProviders } =
       await import("../server/handlers/image-providers/index.js");

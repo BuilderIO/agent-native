@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   evaluateLibraryFilter,
+  isDefaultLibraryFilter,
   LIBRARY_FILTER_LABELS_EN,
   libraryFilterCounts,
   libraryFilterFields,
@@ -98,6 +99,26 @@ describe("Library filter", () => {
     expect(
       run("match=any&r=madeBy:equals:agent&r=transcript:is_checked").ids,
     ).toEqual(["recorded", "agent"]);
+  });
+
+  it("narrows to clips that are both public and shared", () => {
+    const sharing = fields.find((field) => field.id === "sharing");
+    expect(sharing?.manyPerRow).toBe(true);
+    expect(run("source=all&r=sharing:equals:public").ids).toEqual([
+      "uploaded",
+      "older",
+    ]);
+    expect(
+      run("source=all&r=sharing:equals:public&r=sharing:equals:shared").ids,
+    ).toEqual(["older"]);
+  });
+
+  it("reads match=any with no rules as the default filter", () => {
+    expect(isDefaultLibraryFilter(readLibraryFilter("match=any"))).toBe(true);
+    expect(libraryFilterQuery("match=any")).toBe("");
+    expect(libraryFilterQuery("match=any&r=madeBy:equals:agent")).toBe(
+      "match=any&r=madeBy:equals:agent",
+    );
   });
 
   it("reads dates in the user's time zone", () => {

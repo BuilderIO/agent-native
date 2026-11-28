@@ -14,6 +14,7 @@ export default defineAction({
     deckId: z.string().describe("Deck ID to apply the design system to"),
     designSystemId: z.string().describe("Design system ID to link to the deck"),
   }),
+  mcpTool: "search",
   run: async ({ deckId, designSystemId }) => {
     await assertAccess("deck", deckId, "editor");
     await assertAccess("design-system", designSystemId, "viewer");

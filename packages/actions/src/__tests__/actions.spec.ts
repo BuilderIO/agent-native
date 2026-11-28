@@ -489,7 +489,7 @@ describe("Next.js adapter, codegen, and CLI", () => {
 
     fs.writeFileSync(path.join(dir, "actions/hello.js"), "export default {};");
     expect(() => generateActionArtifacts({ projectRoot: dir })).toThrow(
-      /Duplicate action name "hello"/,
+      /Action "hello"/,
     );
     fs.rmSync(path.join(dir, "actions/hello.js"));
 

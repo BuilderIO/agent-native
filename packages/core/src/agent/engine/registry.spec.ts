@@ -4134,6 +4134,65 @@ describe("AgentEngine registry", () => {
       expect(create).not.toHaveBeenCalled();
     });
 
+    it("accepts a stored CGNAT-resolved OpenAI endpoint in a trusted self-hosted runtime", async () => {
+      vi.doMock("node:dns/promises", () => ({
+        lookup: vi.fn(async () => [{ address: "100.64.0.5", family: 4 }]),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => {
+        const readAppSecret = vi.fn(async ({ key }: { key: string }) =>
+          key === "OPENAI_BASE_URL"
+            ? { key, value: "https://gateway.example/v1" }
+            : null,
+        );
+        return {
+          readAppSecret,
+          readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+        };
+      });
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => ({
+          ...(await importOriginal<
+            typeof import("../../server/credential-provider.js")
+          >()),
+          isTrustedSelfHostedRuntime: () => true,
+        }),
+      );
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const engine = { name: "ai-sdk:openai", stream: vi.fn() };
+      const create = vi.fn().mockReturnValue(engine);
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as never,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create,
+      });
+
+      await expect(
+        resolveEngine({
+          engineOption: "ai-sdk:openai",
+          apiKey: "sk-e2e",
+          apiKeyProvenance: {
+            scope: "user",
+            scopeId: "steve@example.com",
+          },
+        }),
+      ).resolves.toBe(engine);
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({ baseUrl: "https://gateway.example/v1" }),
+      );
+    });
+
     it("guards Ollama's implicit loopback endpoint outside trusted self-hosted runtimes", async () => {
       vi.stubEnv("OLLAMA_BASE_URL", "");
       vi.doMock(
@@ -4242,6 +4301,7 @@ describe("AgentEngine registry", () => {
         getProviderCredentialAuthFailure: vi.fn(async () => null),
         prefetchSecrets: vi.fn(async () => {}),
         readDeployCredentialEnv: vi.fn(() => "https://deploy.example/v1"),
+        isTrustedSelfHostedRuntime: vi.fn(() => false),
         resolveBuilderCredentialsDetailed: vi.fn(async () => ({
           privateKey: null,
           publicKey: null,

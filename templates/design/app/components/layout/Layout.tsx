@@ -186,15 +186,17 @@ export function Layout({ children }: LayoutProps) {
   const designQuestionStateKey = designScope
     ? `show-questions:${designScope.id}`
     : "show-questions";
+  const showSidebarQuestionsWaitingSlot =
+    hasSession && layoutMode === "app-shell" && isDesignEditor;
   const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
-    enabled: hasSession,
+    enabled: showSidebarQuestionsWaitingSlot,
     stateKey: designQuestionStateKey,
     queryKey: [designQuestionStateKey],
     browserTabId,
-    refetchInterval: embedded || !isDesignEditor || !hasSession ? false : 2000,
+    refetchInterval: false,
   });
   const designQuestionsWaitingSlot =
-    isDesignEditor && pendingDesignQuestions?.length ? (
+    showSidebarQuestionsWaitingSlot && pendingDesignQuestions?.length ? (
       <div className="px-4 pb-2 pt-1 text-xs text-muted-foreground">
         {"Waiting for your answers in the canvas." /* i18n-ignore */}
       </div>

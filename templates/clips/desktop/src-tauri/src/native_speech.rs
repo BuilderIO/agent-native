@@ -132,9 +132,13 @@ pub(crate) mod macos {
         AVLinearPCMIsFloatKey, AVLinearPCMIsNonInterleaved, AVNumberOfChannelsKey,
     };
     use objc2_core_audio::{
+        kAudioAggregateDevicePropertyActiveSubDeviceList, kAudioDevicePropertyTransportType,
+        kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeBluetooth,
+        kAudioDeviceTransportTypeBluetoothLE, kAudioDeviceTransportTypeUnknown,
         kAudioHardwareNoError, kAudioHardwarePropertyTranslateUIDToDevice,
         kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
-        AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress,
+        AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
+        AudioObjectPropertyAddress,
     };
     use objc2_core_audio_types::kAudioFormatLinearPCM;
     use objc2_core_media::{CMAudioFormatDescriptionGetStreamBasicDescription, CMSampleBuffer};
@@ -814,6 +818,148 @@ pub(crate) mod macos {
             || value.contains("internal microphone")
     }
 
+    /// The input dictation uses when the user chose no microphone ("Default").
+    /// It follows the Mac's default input, so a USB headset works with the
+    /// lid closed, when the built-in mic only sends silence. Only a Bluetooth
+    /// default is passed over for the built-in mic: opening a Bluetooth mic
+    /// switches the headset to its low-quality call mode and glitches what is
+    /// playing. `is_bluetooth` returns `None` when the transport cannot be
+    /// read; such a default is treated like Bluetooth, so only a default that
+    /// is confirmed not to be Bluetooth wins over the built-in mic. Returns
+    /// `None` when neither exists, so capture falls back to whatever macOS
+    /// hands out.
+    pub(crate) fn unselected_input<'a, D>(
+        devices: &'a [D],
+        is_default: impl Fn(&D) -> bool,
+        is_built_in: impl Fn(&D) -> bool,
+        is_bluetooth: impl Fn(&D) -> Option<bool>,
+    ) -> Option<&'a D> {
+        if let Some(default) = devices.iter().find(|device| is_default(device)) {
+            if is_bluetooth(default) == Some(false) {
+                return Some(default);
+            }
+        }
+        devices.iter().find(|device| is_built_in(device))
+    }
+
+    /// `Some(true)` when CoreAudio reports the input as a Bluetooth (classic or
+    /// LE) device, `Some(false)` when it is confirmed to be something else.
+    /// For an aggregate device, the active sub-devices decide (see
+    /// `aggregate_is_bluetooth`). `None` (unconfirmed) when CoreAudio cannot
+    /// resolve the device or read what it needs, or the transport is unknown;
+    /// `unselected_input` then passes it over like Bluetooth.
+    fn is_bluetooth_input(device: &AudioInputDevice) -> Option<bool> {
+        let object_id = audio_object_id_for_uid(&device.id).ok()?;
+        let transport = device_transport(object_id)?;
+        if transport == kAudioDeviceTransportTypeAggregate {
+            let sub_devices = aggregate_active_sub_devices(object_id)?;
+            return aggregate_is_bluetooth(sub_devices.into_iter().map(|sub| {
+                device_transport(sub).and_then(|transport| {
+                    // A nested aggregate is not followed further.
+                    if transport == kAudioDeviceTransportTypeAggregate {
+                        None
+                    } else {
+                        transport_is_bluetooth(transport)
+                    }
+                })
+            }));
+        }
+        transport_is_bluetooth(transport)
+    }
+
+    fn device_transport(object_id: AudioObjectID) -> Option<u32> {
+        let mut transport: u32 = 0;
+        let mut data_size = size_of::<u32>() as u32;
+        let address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                object_id,
+                NonNull::from(&address),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut data_size),
+                NonNull::new_unchecked((&mut transport as *mut u32).cast::<c_void>()),
+            )
+        };
+        (status == kAudioHardwareNoError).then_some(transport)
+    }
+
+    fn aggregate_active_sub_devices(object_id: AudioObjectID) -> Option<Vec<AudioObjectID>> {
+        let address = AudioObjectPropertyAddress {
+            mSelector: kAudioAggregateDevicePropertyActiveSubDeviceList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let mut data_size: u32 = 0;
+        let status = unsafe {
+            AudioObjectGetPropertyDataSize(
+                object_id,
+                NonNull::from(&address),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut data_size),
+            )
+        };
+        if status != kAudioHardwareNoError {
+            return None;
+        }
+        let count = data_size as usize / size_of::<AudioObjectID>();
+        let mut sub_devices: Vec<AudioObjectID> = vec![0; count];
+        if count == 0 {
+            return Some(sub_devices);
+        }
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                object_id,
+                NonNull::from(&address),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut data_size),
+                NonNull::new_unchecked(sub_devices.as_mut_ptr().cast::<c_void>()),
+            )
+        };
+        if status != kAudioHardwareNoError {
+            return None;
+        }
+        sub_devices.truncate(data_size as usize / size_of::<AudioObjectID>());
+        Some(sub_devices)
+    }
+
+    /// Whether a CoreAudio transport type is Bluetooth. `None` when the type
+    /// does not settle it: an unknown transport, or an aggregate device, which
+    /// can contain a Bluetooth microphone.
+    pub(crate) fn transport_is_bluetooth(transport: u32) -> Option<bool> {
+        match transport {
+            kAudioDeviceTransportTypeBluetooth | kAudioDeviceTransportTypeBluetoothLE => Some(true),
+            kAudioDeviceTransportTypeUnknown | kAudioDeviceTransportTypeAggregate => None,
+            _ => Some(false),
+        }
+    }
+
+    /// An aggregate device is Bluetooth when any active sub-device is, and
+    /// confirmed not Bluetooth only when every active sub-device is. An
+    /// aggregate without active sub-devices, or with one that cannot be
+    /// confirmed, stays unconfirmed.
+    pub(crate) fn aggregate_is_bluetooth(
+        sub_devices: impl IntoIterator<Item = Option<bool>>,
+    ) -> Option<bool> {
+        let mut any = false;
+        let mut unconfirmed = false;
+        for sub in sub_devices {
+            any = true;
+            match sub {
+                Some(true) => return Some(true),
+                Some(false) => {}
+                None => unconfirmed = true,
+            }
+        }
+        (any && !unconfirmed).then_some(false)
+    }
+
     fn audio_object_id_for_uid(uid: &str) -> Result<AudioObjectID, String> {
         let ns_uid = NSString::from_str(uid);
         let uid_ref = Retained::as_ptr(&ns_uid) as *const c_void;
@@ -870,9 +1016,12 @@ pub(crate) mod macos {
                 if has_specific_selection {
                     None
                 } else {
-                    devices
-                        .iter()
-                        .find(|device| is_built_in_input_name(&device.name))
+                    unselected_input(
+                        &devices,
+                        |device| device.is_default,
+                        |device| is_built_in_input_name(&device.name),
+                        is_bluetooth_input,
+                    )
                 }
             });
 
@@ -1291,7 +1440,15 @@ pub(crate) mod macos {
             session.addOutput(&output);
         }
 
-        let queue = DispatchQueue::new(queue_label, None);
+        // Audio buffers the delegate cannot take in time are dropped. On a busy
+        // Mac a default-priority queue loses large parts of a recording, so the
+        // capture queue runs at the highest priority.
+        let attr = dispatch2::DispatchQueueAttr::with_qos_class(
+            dispatch2::DispatchQueueAttr::SERIAL,
+            dispatch2::DispatchQoS::UserInteractive,
+            0,
+        );
+        let queue = DispatchQueue::new(queue_label, Some(&attr));
         unsafe { output.setSampleBufferDelegate_queue(Some(delegate), Some(&queue)) };
         let started = objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
             session.startRunning()
@@ -2079,6 +2236,137 @@ pub(crate) mod macos {
             SessionOwner, SessionRegistry, StoppedSessionDisposition,
         };
         use std::sync::Arc;
+
+        struct Mic {
+            name: &'static str,
+            default: bool,
+            /// `None`: the transport could not be read.
+            bluetooth: Option<bool>,
+        }
+
+        fn pick(devices: &[Mic]) -> Option<&'static str> {
+            super::unselected_input(
+                devices,
+                |mic| mic.default,
+                |mic| mic.name.contains("MacBook"),
+                |mic| mic.bluetooth,
+            )
+            .map(|mic| mic.name)
+        }
+
+        #[test]
+        fn unselected_input_follows_a_wired_default_over_the_built_in_mic() {
+            let devices = [
+                Mic {
+                    name: "MacBook Pro Microphone",
+                    default: false,
+                    bluetooth: Some(false),
+                },
+                Mic {
+                    name: "JBL Quantum Stream Talk",
+                    default: true,
+                    bluetooth: Some(false),
+                },
+            ];
+            assert_eq!(pick(&devices), Some("JBL Quantum Stream Talk"));
+        }
+
+        #[test]
+        fn unselected_input_passes_over_a_bluetooth_default_for_the_built_in_mic() {
+            let devices = [
+                Mic {
+                    name: "AirPods Pro",
+                    default: true,
+                    bluetooth: Some(true),
+                },
+                Mic {
+                    name: "MacBook Pro Microphone",
+                    default: false,
+                    bluetooth: Some(false),
+                },
+            ];
+            assert_eq!(pick(&devices), Some("MacBook Pro Microphone"));
+        }
+
+        #[test]
+        fn unselected_input_keeps_a_bluetooth_default_without_a_built_in_mic() {
+            let devices = [Mic {
+                name: "AirPods Pro",
+                default: true,
+                bluetooth: Some(true),
+            }];
+            assert_eq!(pick(&devices), None);
+            let none: [Mic; 0] = [];
+            assert_eq!(pick(&none), None);
+        }
+
+        #[test]
+        fn transport_is_bluetooth_leaves_unknown_and_aggregate_unconfirmed() {
+            use super::transport_is_bluetooth;
+            use objc2_core_audio::{
+                kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeBluetooth,
+                kAudioDeviceTransportTypeBluetoothLE, kAudioDeviceTransportTypeBuiltIn,
+                kAudioDeviceTransportTypeUSB, kAudioDeviceTransportTypeUnknown,
+            };
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeBluetooth),
+                Some(true)
+            );
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeBluetoothLE),
+                Some(true)
+            );
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeUSB),
+                Some(false)
+            );
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeBuiltIn),
+                Some(false)
+            );
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeUnknown),
+                None
+            );
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeAggregate),
+                None
+            );
+        }
+
+        #[test]
+        fn aggregate_is_bluetooth_follows_its_active_sub_devices() {
+            use super::aggregate_is_bluetooth;
+            assert_eq!(
+                aggregate_is_bluetooth([Some(false), Some(false)]),
+                Some(false)
+            );
+            assert_eq!(
+                aggregate_is_bluetooth([Some(false), Some(true)]),
+                Some(true)
+            );
+            assert_eq!(aggregate_is_bluetooth([None, Some(true)]), Some(true));
+            assert_eq!(aggregate_is_bluetooth([Some(false), None]), None);
+            assert_eq!(aggregate_is_bluetooth([]), None);
+        }
+
+        #[test]
+        fn unselected_input_treats_an_unreadable_default_like_bluetooth() {
+            let devices = [
+                Mic {
+                    name: "Unknown Headset",
+                    default: true,
+                    bluetooth: None,
+                },
+                Mic {
+                    name: "MacBook Pro Microphone",
+                    default: false,
+                    bluetooth: Some(false),
+                },
+            ];
+            assert_eq!(pick(&devices), Some("MacBook Pro Microphone"));
+            assert_eq!(pick(&devices[..1]), None);
+        }
 
         #[test]
         fn active_engine_owner_cannot_be_preempted_by_another_owner() {

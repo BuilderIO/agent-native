@@ -1,3 +1,5 @@
+import { createSubscriber } from "svelte/reactivity";
+
 import {
   ActionClientError,
   actionErrorMessage,
@@ -30,8 +32,9 @@ export interface SvelteMutationState<TData, TInput> {
 }
 
 /**
- * Create typed Svelte 5 action helpers (`createActionQuery`, `createActionMutation`, `callAction`).
- * Pass a custom `fetch` (such as SvelteKit's `event.fetch`) when calling from SSR `load` functions.
+ * Create typed Svelte 5 action helpers (`createActionQuery`, `createActionMutation`, `callAction`)
+ * backed by `svelte/reactivity`'s `createSubscriber` so getters participate in fine-grained
+ * Svelte 5 tracking without requiring `.svelte.ts` compilation of the library.
  */
 export function createSvelteActionHooks<TRegistry = unknown>(
   options: ActionClientOptions = {},
@@ -57,6 +60,14 @@ export function createSvelteActionHooks<TRegistry = unknown>(
     let error: ActionClientError | null = null;
     let isLoading = false;
     let controller: AbortController | null = null;
+    let notify: (() => void) | null = null;
+
+    const subscribe = createSubscriber((update) => {
+      notify = update;
+      return () => {
+        notify = null;
+      };
+    });
 
     const refetch = async (): Promise<
       ActionOutputOf<TRegistry, TName> | undefined
@@ -74,30 +85,41 @@ export function createSvelteActionHooks<TRegistry = unknown>(
       if (resolved === false || resolved === null) return undefined;
 
       controller?.abort();
-      controller = new AbortController();
+      const active = new AbortController();
+      controller = active;
       isLoading = true;
       error = null;
+      notify?.();
       try {
         const result = await client.call(name, resolved, {
           method: queryOpts.method ?? "GET",
-          signal: controller.signal,
+          signal: active.signal,
           ...(queryOpts.headers ? { headers: queryOpts.headers } : {}),
         });
-        data = result;
+        if (controller === active) {
+          data = result;
+          notify?.();
+        }
         return result;
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return undefined;
-        error =
-          err instanceof ActionClientError
-            ? err
-            : new ActionClientError({
-                actionName: name,
-                message: err instanceof Error ? err.message : String(err),
-                statusCode: 500,
-              });
+        if (controller === active) {
+          error =
+            err instanceof ActionClientError
+              ? err
+              : new ActionClientError({
+                  actionName: name,
+                  message: err instanceof Error ? err.message : String(err),
+                  statusCode: 500,
+                });
+          notify?.();
+        }
         return undefined;
       } finally {
-        isLoading = false;
+        if (controller === active) {
+          isLoading = false;
+          notify?.();
+        }
       }
     };
 
@@ -111,12 +133,15 @@ export function createSvelteActionHooks<TRegistry = unknown>(
 
     return {
       get data() {
+        subscribe();
         return data;
       },
       get error() {
+        subscribe();
         return error;
       },
       get isLoading() {
+        subscribe();
         return isLoading;
       },
       refetch,
@@ -150,12 +175,21 @@ export function createSvelteActionHooks<TRegistry = unknown>(
     let data: ActionOutputOf<TRegistry, TName> | undefined;
     let error: ActionClientError | null = null;
     let isPending = false;
+    let notify: (() => void) | null = null;
+
+    const subscribe = createSubscriber((update) => {
+      notify = update;
+      return () => {
+        notify = null;
+      };
+    });
 
     const mutateAsync = async (
       input: ActionInputOf<TRegistry, TName>,
     ): Promise<ActionOutputOf<TRegistry, TName>> => {
       isPending = true;
       error = null;
+      notify?.();
       try {
         const result = await client.call(name, input, {
           method: mutationOpts.method ?? "POST",
@@ -165,6 +199,7 @@ export function createSvelteActionHooks<TRegistry = unknown>(
             : {}),
         });
         data = result;
+        notify?.();
         notifyInvalidation(mutationOpts.invalidate);
         await mutationOpts.onSuccess?.(result, input);
         return result;
@@ -178,10 +213,12 @@ export function createSvelteActionHooks<TRegistry = unknown>(
                 statusCode: 500,
               });
         error = normalized;
+        notify?.();
         mutationOpts.onError?.(normalized, input);
         throw normalized;
       } finally {
         isPending = false;
+        notify?.();
       }
     };
 
@@ -198,12 +235,15 @@ export function createSvelteActionHooks<TRegistry = unknown>(
 
     return {
       get data() {
+        subscribe();
         return data;
       },
       get error() {
+        subscribe();
         return error;
       },
       get isPending() {
+        subscribe();
         return isPending;
       },
       mutate,

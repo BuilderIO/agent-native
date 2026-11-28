@@ -53,6 +53,7 @@ export default defineAction({
     threadId: z.string().min(1).optional(),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ deckId, limit, threadId }) => {
     const access = await assertAccess("deck", deckId, "viewer");
     const ownerEmail = access.resource.ownerEmail as string;

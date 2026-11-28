@@ -320,6 +320,25 @@ type RendererMemory = {
 };
 // The editor's renderer holds the page and its same-origin live editors;
 // out-of-process frames (the static previews) add renderers of their own.
+function isDetachedTargetError(error: unknown): boolean {
+  const text = String(error);
+  return (
+    text.includes("Target page, context or browser has been closed") ||
+    text.includes("Target closed") ||
+    text.includes("Session closed") ||
+    text.includes("does not have a separate CDP session")
+  );
+}
+
+async function readSessionMemory(
+  session: CDPSession,
+): Promise<{ heapMB: number; documents: number }> {
+  await session.send("HeapProfiler.collectGarbage");
+  const { usedSize } = await session.send("Runtime.getHeapUsage");
+  const { documents } = await session.send("Memory.getDOMCounters");
+  return { heapMB: usedSize / 1e6, documents };
+}
+
 async function readRendererMemory(): Promise<RendererMemory> {
   const frameSessions: CDPSession[] = [];
   for (const frame of page.frames()) {
@@ -327,33 +346,51 @@ async function readRendererMemory(): Promise<RendererMemory> {
     try {
       frameSessions.push(await context.newCDPSession(frame));
     } catch (error) {
-      if (!String(error).includes("does not have a separate CDP session")) {
+      if (!isDetachedTargetError(error)) {
         throw error;
       }
     }
   }
   // Chrome puts every sandboxed preview of a site in one renderer, so many
   // frame sessions report the same isolate; count each isolate once.
-  const sessionByIsolate = new Map<string, CDPSession>();
-  for (const session of [cdp, ...frameSessions]) {
-    const { id } = await session.send("Runtime.getIsolateId");
-    if (!sessionByIsolate.has(id)) sessionByIsolate.set(id, session);
+  try {
+    const sessionByIsolate = new Map<string, CDPSession>();
+    const mainIsolate = await cdp.send("Runtime.getIsolateId");
+    sessionByIsolate.set(mainIsolate.id, cdp);
+    for (const session of frameSessions) {
+      try {
+        const { id } = await session.send("Runtime.getIsolateId");
+        if (!sessionByIsolate.has(id)) sessionByIsolate.set(id, session);
+      } catch (error) {
+        if (!isDetachedTargetError(error)) throw error;
+      }
+    }
+    const editorProcess = await readSessionMemory(cdp);
+    const perProcess = [editorProcess];
+    for (const session of sessionByIsolate.values()) {
+      if (session === cdp) continue;
+      try {
+        perProcess.push(await readSessionMemory(session));
+      } catch (error) {
+        if (!isDetachedTargetError(error)) throw error;
+      }
+    }
+    return {
+      editorHeapMB: editorProcess.heapMB,
+      totalHeapMB: perProcess.reduce((sum, p) => sum + p.heapMB, 0),
+      editorDocuments: editorProcess.documents,
+      totalDocuments: perProcess.reduce((sum, p) => sum + p.documents, 0),
+      processes: perProcess.length,
+    };
+  } finally {
+    await Promise.all(
+      frameSessions.map((session) =>
+        session.detach().catch((error) => {
+          if (!isDetachedTargetError(error)) throw error;
+        }),
+      ),
+    );
   }
-  const perProcess = [];
-  for (const session of sessionByIsolate.values()) {
-    await session.send("HeapProfiler.collectGarbage");
-    const { usedSize } = await session.send("Runtime.getHeapUsage");
-    const { documents } = await session.send("Memory.getDOMCounters");
-    perProcess.push({ heapMB: usedSize / 1e6, documents });
-  }
-  await Promise.all(frameSessions.map((session) => session.detach()));
-  return {
-    editorHeapMB: perProcess[0]!.heapMB,
-    totalHeapMB: perProcess.reduce((sum, p) => sum + p.heapMB, 0),
-    editorDocuments: perProcess[0]!.documents,
-    totalDocuments: perProcess.reduce((sum, p) => sum + p.documents, 0),
-    processes: perProcess.length,
-  };
 }
 const now = () => page.evaluate(() => performance.now());
 function countSince(field: "liveInserts" | "previewRemounts", since: number) {

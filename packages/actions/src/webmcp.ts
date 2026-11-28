@@ -1,4 +1,4 @@
-import type { ActionClient } from "./client.js";
+import { createActionClient, type ActionClient } from "./client.js";
 import type { ActionMetadataSummary } from "./types.js";
 
 interface BrowserModelContext {
@@ -15,16 +15,47 @@ export interface RegisterWebMcpOptions {
   include: readonly string[];
   /** Optional metadata overrides (otherwise fetched from `<baseUrl>`). */
   metadata?: readonly ActionMetadataSummary[];
+  /** Optional base URL used when called without an explicit `ActionClient`. */
+  baseUrl?: string;
+}
+
+function isActionClient(value: unknown): value is ActionClient<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { call?: unknown }).call === "function" &&
+    typeof (value as { baseUrl?: unknown }).baseUrl === "string"
+  );
 }
 
 /**
  * Register selected actions with browser-embedded agents via `navigator.modelContext`
  * (WebMCP), executing under the user's live browser session.
  */
+export async function registerWebMcpTools(
+  options: RegisterWebMcpOptions,
+): Promise<{ registered: string[] }>;
 export async function registerWebMcpTools<TRegistry>(
   client: ActionClient<TRegistry>,
   options: RegisterWebMcpOptions,
+): Promise<{ registered: string[] }>;
+export async function registerWebMcpTools<TRegistry>(
+  clientOrOptions: ActionClient<TRegistry> | RegisterWebMcpOptions,
+  maybeOptions?: RegisterWebMcpOptions,
 ): Promise<{ registered: string[] }> {
+  const client: ActionClient<unknown> = isActionClient(clientOrOptions)
+    ? (clientOrOptions as ActionClient<unknown>)
+    : createActionClient<unknown>(
+        clientOrOptions.baseUrl ? { baseUrl: clientOrOptions.baseUrl } : {},
+      );
+  const options = isActionClient(clientOrOptions)
+    ? maybeOptions
+    : clientOrOptions;
+
+  if (!options) {
+    throw new TypeError("registerWebMcpTools requires an options object.");
+  }
+
   if (typeof navigator === "undefined") {
     return { registered: [] };
   }

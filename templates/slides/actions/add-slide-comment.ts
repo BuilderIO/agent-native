@@ -64,6 +64,7 @@ export default defineAction({
       id: (result as { id: string }).id,
     }),
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const {
       deckId,

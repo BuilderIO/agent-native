@@ -61,6 +61,8 @@ export interface FilterField<Row = never> {
   icon?: ReactNode;
   options?: readonly FilterOption[];
   alwaysSet?: boolean;
+  /** A row can hold several of the field's options at once. */
+  manyPerRow?: boolean;
   dates?: "past" | "future" | "any";
   times?: boolean;
   operators?: readonly FilterOperator[];
@@ -341,11 +343,17 @@ export function isDefaultFilterState(
   fields: readonly FilterField<never>[],
 ) {
   return (
-    state.mode === "and" &&
     activeFilterRuleCount(state, fields) === 0 &&
-    fields.every(
-      (field) => !field.pinned || isPinnedFilterDefault(state, field),
-    )
+    changedPinnedFilterFields(state, fields).length === 0
+  );
+}
+
+export function changedPinnedFilterFields(
+  state: FilterState,
+  fields: readonly FilterField<never>[],
+): FilterField<never>[] {
+  return fields.filter(
+    (field) => field.pinned && !isPinnedFilterDefault(state, field),
   );
 }
 
@@ -403,6 +411,20 @@ export function pruneFilterState(
   keep: ReadonlySet<string> = new Set(),
 ): FilterState {
   return { ...state, items: pruneItems(state.items, fields, keep) };
+}
+
+/** The state once a filter closes, without its unfinished rules other than those in `keep`; undefined when no rule goes. */
+export function filterStateAfterClose(
+  state: FilterState,
+  fields: readonly FilterField<never>[],
+  keep: ReadonlySet<string>,
+): FilterState | undefined {
+  if (!hasIncompleteFilterRules(state, fields)) return undefined;
+  const pruned = pruneFilterState(state, fields, keep);
+  return incompleteFilterRuleIds(pruned, fields).size !==
+    incompleteFilterRuleIds(state, fields).size
+    ? pruned
+    : undefined;
 }
 
 export function pruneFilterGroup(

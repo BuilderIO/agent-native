@@ -1,4 +1,12 @@
 import {
+  getCurrentScope,
+  onScopeDispose,
+  ref,
+  watchEffect,
+  type Ref,
+} from "vue";
+
+import {
   ActionClientError,
   actionErrorMessage,
   createActionClient,
@@ -14,33 +22,19 @@ export { ActionClientError, actionErrorMessage };
 export type { ActionCallOptions, ActionClient, ActionClientOptions };
 
 export interface VueQueryState<TData> {
-  readonly data: { readonly value: TData | undefined };
-  readonly error: { readonly value: ActionClientError | null };
-  readonly isPending: { readonly value: boolean };
+  readonly data: Ref<TData | undefined>;
+  readonly error: Ref<ActionClientError | null>;
+  readonly isPending: Ref<boolean>;
   refetch: () => Promise<TData | undefined>;
+  stop: () => void;
 }
 
 export interface VueMutationState<TData, TInput> {
-  readonly data: { readonly value: TData | undefined };
-  readonly error: { readonly value: ActionClientError | null };
-  readonly isPending: { readonly value: boolean };
+  readonly data: Ref<TData | undefined>;
+  readonly error: Ref<ActionClientError | null>;
+  readonly isPending: Ref<boolean>;
   mutate: (input: TInput) => Promise<TData | undefined>;
   mutateAsync: (input: TInput) => Promise<TData>;
-}
-
-interface VueRuntime {
-  ref: <T>(value: T) => { value: T };
-  watchEffect?: (effect: () => void) => () => void;
-}
-
-async function loadVueRuntime(): Promise<VueRuntime | null> {
-  try {
-    const mod = (await import("vue")) as unknown as VueRuntime;
-    return typeof mod.ref === "function" ? mod : null;
-  } catch {
-    // coercion-ok: vue is an optional peer dependency; null signals fallback to plain ref objects
-    return null;
-  }
 }
 
 /**
@@ -67,13 +61,55 @@ export function createVueActionHooks<TRegistry = unknown>(
       | (() => ActionInputOf<TRegistry, TName> | false | null | undefined),
     queryOpts: { method?: "GET" | "POST"; headers?: HeadersInit } = {},
   ): VueQueryState<ActionOutputOf<TRegistry, TName>> {
-    const dataRef = {
-      value: undefined as ActionOutputOf<TRegistry, TName> | undefined,
-    };
-    const errorRef = { value: null as ActionClientError | null };
-    const pendingRef = { value: false };
+    const data = ref<ActionOutputOf<TRegistry, TName> | undefined>(
+      undefined,
+    ) as Ref<ActionOutputOf<TRegistry, TName> | undefined>;
+    const error = ref<ActionClientError | null>(null);
+    const isPending = ref(false);
 
     let activeController: AbortController | null = null;
+
+    const execute = async (
+      resolvedInput: ActionInputOf<TRegistry, TName> | false | null | undefined,
+    ): Promise<ActionOutputOf<TRegistry, TName> | undefined> => {
+      if (resolvedInput === false || resolvedInput === null) return undefined;
+
+      activeController?.abort();
+      const controller = new AbortController();
+      activeController = controller;
+      isPending.value = true;
+      error.value = null;
+      try {
+        const result = await client.call(name, resolvedInput, {
+          method: queryOpts.method ?? "GET",
+          signal: controller.signal,
+          ...(queryOpts.headers ? { headers: queryOpts.headers } : {}),
+        });
+        if (activeController === controller) {
+          data.value = result;
+        }
+        return result;
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          return undefined;
+        }
+        if (activeController === controller) {
+          error.value =
+            err instanceof ActionClientError
+              ? err
+              : new ActionClientError({
+                  actionName: name,
+                  message: err instanceof Error ? err.message : String(err),
+                  statusCode: 500,
+                });
+        }
+        return undefined;
+      } finally {
+        if (activeController === controller) {
+          isPending.value = false;
+        }
+      }
+    };
 
     const refetch = async (): Promise<
       ActionOutputOf<TRegistry, TName> | undefined
@@ -88,36 +124,7 @@ export function createVueActionHooks<TRegistry = unknown>(
                 | undefined
             )()
           : input;
-      if (resolvedInput === false || resolvedInput === null) return undefined;
-
-      activeController?.abort();
-      activeController = new AbortController();
-      pendingRef.value = true;
-      errorRef.value = null;
-      try {
-        const result = await client.call(name, resolvedInput, {
-          method: queryOpts.method ?? "GET",
-          signal: activeController.signal,
-          ...(queryOpts.headers ? { headers: queryOpts.headers } : {}),
-        });
-        dataRef.value = result;
-        return result;
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") {
-          return undefined;
-        }
-        errorRef.value =
-          err instanceof ActionClientError
-            ? err
-            : new ActionClientError({
-                actionName: name,
-                message: err instanceof Error ? err.message : String(err),
-                statusCode: 500,
-              });
-        return undefined;
-      } finally {
-        pendingRef.value = false;
-      }
+      return execute(resolvedInput);
     };
 
     const listener = (targets?: readonly string[]) => {
@@ -127,21 +134,37 @@ export function createVueActionHooks<TRegistry = unknown>(
     };
     listeners.add(listener);
 
-    void loadVueRuntime().then((vue) => {
-      if (vue?.watchEffect && typeof input === "function") {
-        vue.watchEffect(() => {
-          void refetch();
-        });
-      } else {
-        void refetch();
-      }
-    });
+    let stopWatch: (() => void) | undefined;
+    if (typeof input === "function") {
+      const getter = input as () =>
+        | ActionInputOf<TRegistry, TName>
+        | false
+        | null
+        | undefined;
+      stopWatch = watchEffect(() => {
+        const resolved = getter();
+        void execute(resolved);
+      });
+    } else {
+      void execute(input);
+    }
+
+    const stop = () => {
+      stopWatch?.();
+      activeController?.abort();
+      listeners.delete(listener);
+    };
+
+    if (getCurrentScope()) {
+      onScopeDispose(stop);
+    }
 
     return {
-      data: dataRef,
-      error: errorRef,
-      isPending: pendingRef,
+      data,
+      error,
+      isPending,
       refetch,
+      stop,
     };
   }
 
@@ -165,17 +188,17 @@ export function createVueActionHooks<TRegistry = unknown>(
     ActionOutputOf<TRegistry, TName>,
     ActionInputOf<TRegistry, TName>
   > {
-    const dataRef = {
-      value: undefined as ActionOutputOf<TRegistry, TName> | undefined,
-    };
-    const errorRef = { value: null as ActionClientError | null };
-    const pendingRef = { value: false };
+    const data = ref<ActionOutputOf<TRegistry, TName> | undefined>(
+      undefined,
+    ) as Ref<ActionOutputOf<TRegistry, TName> | undefined>;
+    const error = ref<ActionClientError | null>(null);
+    const isPending = ref(false);
 
     const mutateAsync = async (
       input: ActionInputOf<TRegistry, TName>,
     ): Promise<ActionOutputOf<TRegistry, TName>> => {
-      pendingRef.value = true;
-      errorRef.value = null;
+      isPending.value = true;
+      error.value = null;
       try {
         const result = await client.call(name, input, {
           method: mutationOpts.method ?? "POST",
@@ -184,7 +207,7 @@ export function createVueActionHooks<TRegistry = unknown>(
             ? { approvalToken: mutationOpts.approvalToken }
             : {}),
         });
-        dataRef.value = result;
+        data.value = result;
         notifyInvalidation(mutationOpts.invalidate);
         await mutationOpts.onSuccess?.(result, input);
         return result;
@@ -197,11 +220,11 @@ export function createVueActionHooks<TRegistry = unknown>(
                 message: err instanceof Error ? err.message : String(err),
                 statusCode: 500,
               });
-        errorRef.value = normalized;
+        error.value = normalized;
         mutationOpts.onError?.(normalized, input);
         throw normalized;
       } finally {
-        pendingRef.value = false;
+        isPending.value = false;
       }
     };
 
@@ -217,9 +240,9 @@ export function createVueActionHooks<TRegistry = unknown>(
     };
 
     return {
-      data: dataRef,
-      error: errorRef,
-      isPending: pendingRef,
+      data,
+      error,
+      isPending,
       mutate,
       mutateAsync,
     };

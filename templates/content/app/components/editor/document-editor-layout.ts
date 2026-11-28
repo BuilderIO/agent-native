@@ -14,8 +14,8 @@ export function documentEditorTitleRegionClassName(
 ) {
   if (host === "preview") {
     return hasDatabase
-      ? "shrink-0 w-full max-w-none px-4 pb-2 pt-2 sm:px-6 sm:pt-6 group/title"
-      : "shrink-0 mx-auto w-full max-w-3xl px-4 pb-3 pt-2 @min-[40rem]/page:px-6 sm:pt-6 group/title";
+      ? "shrink-0 w-full max-w-none px-4 pb-2 pt-16 sm:px-6 sm:pt-8 group/title"
+      : "shrink-0 mx-auto w-full max-w-3xl px-4 pb-3 pt-16 @min-[40rem]/page:px-6 sm:pt-8 group/title";
   }
   if (hasDatabase) {
     return cn(
@@ -27,6 +27,12 @@ export function documentEditorTitleRegionClassName(
     "shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 @min-[40rem]/page:px-8 @min-[48rem]/page:px-16 md:pt-16 group/title",
     "pb-8",
   );
+}
+
+export function documentEditorIconRowClassName(
+  host: "page" | "preview" = "page",
+) {
+  return host === "preview" ? "mb-1 sm:min-h-8" : "mb-1";
 }
 
 // The size class sets the line height. The title textarea grows to its

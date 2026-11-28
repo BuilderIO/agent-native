@@ -41,6 +41,7 @@ export default defineAction({
   }),
   http: false,
   readOnly: true,
+  mcpTool: "search",
   run: async ({ deckId, slideIds }) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) {

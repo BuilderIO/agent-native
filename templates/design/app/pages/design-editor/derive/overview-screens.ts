@@ -5,11 +5,13 @@ import { resolveScreenHeightMode } from "@/components/design/multi-screen/screen
 
 import { getDesignDataRecord } from "../design-data-geometry-utils";
 import type { DesignFile } from "../types";
+import { deriveDesignBreakpoints } from "./design-breakpoints";
 
 export interface OverviewScreen {
   id: string;
   filename: string;
   content: string;
+  contentBytes?: number | null;
   sourceState?: "unloaded" | "loading" | "deferred" | "ready" | "error";
   updatedAt: string;
   sourceType?: string;
@@ -54,36 +56,12 @@ export function deriveOverviewScreens({
     designDataJson,
     "screenMetadata",
   );
-  const breakpointSet = (() => {
-    try {
-      const raw = (designDataJson as Record<string, unknown>)?.breakpointSet;
-      if (
-        raw &&
-        typeof raw === "object" &&
-        !Array.isArray(raw) &&
-        Array.isArray((raw as Record<string, unknown>).breakpoints)
-      ) {
-        return raw as {
-          id: string;
-          breakpoints: Array<{
-            id: string;
-            widthPx: number;
-            label?: string;
-            prefix?: string;
-          }>;
-        };
-      }
-      // coercion-ok: an unreadable breakpointSet means "none configured", which the undefined return already expresses to the caller.
-    } catch {
-      // ignore
-    }
-    return undefined;
-  })();
+  const designBreakpoints = breakpointFramesHidden
+    ? []
+    : deriveDesignBreakpoints(designDataJson);
   const bpWidths =
-    !breakpointFramesHidden &&
-    breakpointSet &&
-    breakpointSet.breakpoints.length > 0
-      ? breakpointSet.breakpoints.map((bp) => bp.widthPx)
+    designBreakpoints.length > 0
+      ? designBreakpoints.map((bp) => bp.widthPx)
       : undefined;
 
   const overviewFiles = files.filter(isOverviewScreenFile);
@@ -130,6 +108,7 @@ export function deriveOverviewScreens({
       id: file.id,
       filename: file.filename,
       content: file.content,
+      contentBytes: file.contentBytes,
       sourceState: file.sourceState,
       updatedAt: file.updatedAt,
       sourceType: stringValue("sourceType"),

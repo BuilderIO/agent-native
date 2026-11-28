@@ -27,6 +27,7 @@ export default defineAction({
     deckId: z.string().describe("Deck ID"),
     aspectRatio: z.enum(ASPECT_RATIO_VALUES).describe("Target aspect ratio"),
   }),
+  mcpTool: "search",
   run: async ({ deckId, aspectRatio }, ctx) => {
     await assertAccess("deck", deckId, "editor");
     const db = getDb();

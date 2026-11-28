@@ -15,19 +15,29 @@ const mocks = vi.hoisted(() => ({
   deleteStoredMediaUrl: vi.fn(),
   readAppState: vi.fn(),
   writeAppState: vi.fn(),
+  compareAndSetAppState: vi.fn(),
   claimLease: vi.fn(),
   releaseLease: vi.fn(),
+  renewLease: vi.fn(),
 }));
 
-// The factory deliberately has no compareAndSetAppState: the thumbnail lease
-// must not go through application_state, which publishes a sync event per write.
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mocks.readAppState(...args),
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
+  compareAndSetAppState: (...args: unknown[]) =>
+    mocks.compareAndSetAppState(...args),
 }));
 vi.mock("./recording-leases.js", () => ({
   claimLease: (...args: unknown[]) => mocks.claimLease(...args),
   releaseLease: (...args: unknown[]) => mocks.releaseLease(...args),
+  renewLease: (...args: unknown[]) => mocks.renewLease(...args),
+  LeaseLostError: class extends Error {
+    readonly code = "lease_lost";
+  },
+  writeUnderLease: (_lease: unknown, write: (held: string) => unknown) =>
+    write("lease-held"),
+  isLeaseLost: (error: unknown) =>
+    (error as { code?: unknown } | null)?.code === "lease_lost",
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
   deleteUploadedFile: (...args: unknown[]) => mocks.deleteUploadedFile(...args),
@@ -155,7 +165,9 @@ describe("ensureRecordingThumbnail", () => {
       expiresAt: Date.now() + ttlMs,
     }));
     mocks.releaseLease.mockResolvedValue(undefined);
+    mocks.renewLease.mockResolvedValue(true);
     mocks.writeAppState.mockResolvedValue(undefined);
+    mocks.compareAndSetAppState.mockResolvedValue(true);
   });
 
   it("extracts and persists one thumbnail when the upload omitted it", async () => {
@@ -314,7 +326,10 @@ describe("ensureRecordingThumbnail", () => {
     const { db, update, updateSet } = createDb(recording());
     mocks.getDb.mockReturnValue(db);
 
-    await markThumbnailFailed("rec-1", "retries exhausted");
+    await markThumbnailFailed("rec-1", "retries exhausted", {
+      thumbnailStatus: null,
+      thumbnailFailureReason: null,
+    });
 
     expect(update).toHaveBeenCalledOnce();
     expect(updateSet).toHaveBeenCalledWith({
@@ -445,6 +460,10 @@ describe("ensureRecordingThumbnail", () => {
       .mockResolvedValueOnce([recording()])
       .mockResolvedValueOnce([winner]);
     mocks.getDb.mockReturnValue(db);
+    mocks.uploadRecordingMedia.mockResolvedValue({
+      url: "https://cdn.example.com/thumb.jpg",
+      provider: "s3",
+    });
 
     const result = await ensureRecordingThumbnail({
       recordingId: "rec-1",
@@ -458,7 +477,7 @@ describe("ensureRecordingThumbnail", () => {
       changed: false,
       thumbnailUrl: "https://cdn.example.com/winner.jpg",
     });
-    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("s3", {
       url: "https://cdn.example.com/thumb.jpg",
     });
   });
@@ -481,14 +500,14 @@ describe("ensureRecordingThumbnail", () => {
     mocks.getDb.mockReturnValue(db);
     mocks.uploadRecordingMedia.mockResolvedValue({
       url: "https://cdn.example.com/new-thumb.jpg",
-      provider: "builder",
+      provider: "s3",
       id: "new-asset",
     });
     mocks.readAppState.mockImplementation(async (key: string) => {
       if (key === "recording-thumbnail-asset-rec-1") {
         return {
           url: oldThumbnailUrl,
-          provider: "builder",
+          provider: "s3",
           id: "old-asset",
         };
       }
@@ -506,17 +525,19 @@ describe("ensureRecordingThumbnail", () => {
       status: "generated",
       thumbnailUrl: "https://cdn.example.com/new-thumb.jpg",
     });
-    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("s3", {
       url: oldThumbnailUrl,
       id: "old-asset",
     });
-    expect(mocks.writeAppState).toHaveBeenCalledWith(
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
       "recording-thumbnail-asset-rec-1",
+      { url: oldThumbnailUrl, provider: "s3", id: "old-asset" },
       {
         url: "https://cdn.example.com/new-thumb.jpg",
-        provider: "builder",
+        provider: "s3",
         id: "new-asset",
       },
+      { lease: expect.objectContaining({ token: "lease-token" }) },
     );
   });
 
@@ -573,6 +594,10 @@ describe("ensureRecordingThumbnail", () => {
       .mockResolvedValueOnce([recording()]);
     updateReturning.mockRejectedValueOnce(new Error("database unavailable"));
     mocks.getDb.mockReturnValue(db);
+    mocks.uploadRecordingMedia.mockResolvedValue({
+      url: "https://cdn.example.com/thumb.jpg",
+      provider: "s3",
+    });
 
     await expect(
       ensureRecordingThumbnail({
@@ -581,7 +606,7 @@ describe("ensureRecordingThumbnail", () => {
         mediaBytes: new Uint8Array([9, 9, 9]),
       }),
     ).rejects.toThrow("database unavailable");
-    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("s3", {
       url: "https://cdn.example.com/thumb.jpg",
     });
   });
@@ -608,6 +633,7 @@ describe("ensureRecordingThumbnail", () => {
     );
     const syncedKeys = [
       ...mocks.writeAppState.mock.calls,
+      ...mocks.compareAndSetAppState.mock.calls,
       ...mocks.readAppState.mock.calls,
     ].map(([key]) => String(key));
     expect(syncedKeys.filter((key) => key.includes("lease"))).toEqual([]);

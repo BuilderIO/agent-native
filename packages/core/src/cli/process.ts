@@ -36,30 +36,65 @@ export function cliSpawnOptions(
   };
 }
 
+/** Prefix of the private environment variables that carry `%` arguments. */
+export const SHIM_ARG_ENV_PREFIX = "AGENT_NATIVE_SHIM_ARG_";
+
+/**
+ * `[command, args, shell]`, plus a fourth element when a Windows command line
+ * refers to environment variables: the caller has to add those to the `env` it
+ * spawns with.
+ */
+export type ShimSpawnTarget =
+  | [command: string, args: string[], shell: boolean]
+  | [
+      command: string,
+      args: string[],
+      shell: boolean,
+      shimEnv: Record<string, string>,
+    ];
+
 /**
  * The `[command, args, shell]` to spawn a package-manager shim such as npm or
  * pnpm. On Windows these are `.cmd` files, which Node starts only through a
  * shell (CVE-2024-27980; `spawn("npm.cmd", args)` fails with EINVAL), and the
  * shell needs the command line quoted because paths may contain spaces.
+ *
+ * cmd.exe expands `%NAME%` even inside double quotes, so a path such as
+ * `C:\Users\%USERNAME%\app` would be rewritten before the shim sees it. Such
+ * an argument goes into a private environment variable (the fourth element,
+ * which the caller adds to the spawn `env`) and the command line refers to that
+ * variable; cmd.exe does not expand a value a second time. A `"` cannot be
+ * escaped in cmd.exe at all, so an argument with one is refused.
+ *
+ * The command name stays unquoted: the npm and pnpm shims find their files
+ * through `%~dp0`, which cmd.exe resolves to the working directory when the
+ * name is quoted.
  */
 export function shimSpawnTarget(
   command: string,
   args: string[],
   platform: NodeJS.Platform = process.platform,
-): [string, string[], boolean] {
+): ShimSpawnTarget {
   if (platform !== "win32") return [command, args, false];
-  const quoted = args.map((arg) => {
-    // cmd.exe has no reliable way to escape these inside a quoted argument.
-    if (/["%]/.test(arg)) {
+  const shimEnv: Record<string, string> = {};
+  const quoted = args.map((arg, index) => {
+    if (arg.includes('"')) {
       throw new Error(
-        `Cannot run ${command} on Windows: path contains '"' or '%': ${arg}`,
+        `Cannot run ${command} on Windows: path contains '"': ${arg}`,
       );
     }
-    return /[\s&|<>^()!]/.test(arg)
-      ? `"${arg.replace(/(\\*)$/, "$1$1")}"`
-      : arg;
+    const closed = arg.replace(/(\\*)$/, "$1$1");
+    if (arg.includes("%")) {
+      const name = `${SHIM_ARG_ENV_PREFIX}${index}`;
+      shimEnv[name] = closed;
+      return `"%${name}%"`;
+    }
+    return /[\s&|<>^()!]/.test(arg) ? `"${closed}"` : arg;
   });
-  return [[command, ...quoted].join(" "), [], true];
+  const line = [command, ...quoted].join(" ");
+  return Object.keys(shimEnv).length > 0
+    ? [line, [], true, shimEnv]
+    : [line, [], true];
 }
 
 export function runDevServer(

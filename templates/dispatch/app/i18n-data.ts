@@ -265,6 +265,14 @@ const enUS = {
     editGroupAria: "Edit {{name}}",
   },
   messaging: {
+    slackBotToken: {
+      rejectedStatus: "Token rejected",
+      rejectedTitle: "Slack rejected the bot token",
+      rejectedReason: "Slack answered {{code}}.",
+      rejectedFix:
+        "Reinstall the Slack app and save its new bot token, or connect the workspace with Add to Slack.",
+      rejected: "Rejected",
+    },
     managed: {
       connectionChecked: "Slack connection checked",
       workspaceDisconnected: "Slack workspace disconnected",
@@ -1514,6 +1522,14 @@ export const messagesByLocale = {
       },
 
       messaging: {
+        slackBotToken: {
+          rejectedStatus: "令牌被拒绝",
+          rejectedTitle: "Slack 拒绝了机器人令牌",
+          rejectedReason: "Slack 返回了 {{code}}。",
+          rejectedFix:
+            "请重新安装 Slack 应用并保存新的机器人令牌，或通过“添加到 Slack”连接工作区。",
+          rejected: "已拒绝",
+        },
         managed: {
           connectionChecked: "Slack 连接已检查",
           workspaceDisconnected: "Slack 工作区已断开连接",
@@ -1988,6 +2004,14 @@ export const messagesByLocale = {
       },
 
       messaging: {
+        slackBotToken: {
+          rejectedStatus: "Token rechazado",
+          rejectedTitle: "Slack rechazó el token del bot",
+          rejectedReason: "Slack respondió {{code}}.",
+          rejectedFix:
+            "Reinstala la app de Slack y guarda su nuevo token de bot, o conecta el espacio de trabajo con «Añadir a Slack».",
+          rejected: "Rechazado",
+        },
         managed: {
           connectionChecked: "Conexión de Slack comprobada",
           workspaceDisconnected: "Espacio de trabajo de Slack desconectado",
@@ -2479,6 +2503,14 @@ export const messagesByLocale = {
       },
 
       messaging: {
+        slackBotToken: {
+          rejectedStatus: "Jeton refusé",
+          rejectedTitle: "Slack a refusé le jeton du bot",
+          rejectedReason: "Slack a répondu {{code}}.",
+          rejectedFix:
+            "Réinstallez l'app Slack et enregistrez son nouveau jeton de bot, ou connectez l'espace de travail avec « Ajouter à Slack ».",
+          rejected: "Refusé",
+        },
         managed: {
           connectionChecked: "Connexion Slack vérifiée",
           workspaceDisconnected: "Espace de travail Slack déconnecté",
@@ -2963,6 +2995,14 @@ export const messagesByLocale = {
       },
 
       messaging: {
+        slackBotToken: {
+          rejectedStatus: "Token abgelehnt",
+          rejectedTitle: "Slack hat das Bot-Token abgelehnt",
+          rejectedReason: "Slack hat mit {{code}} geantwortet.",
+          rejectedFix:
+            "Installiere die Slack-App neu und speichere ihr neues Bot-Token oder verbinde den Workspace über „Zu Slack hinzufügen“.",
+          rejected: "Abgelehnt",
+        },
         managed: {
           connectionChecked: "Slack-Verbindung geprüft",
           workspaceDisconnected: "Slack-Workspace getrennt",
@@ -3441,6 +3481,14 @@ export const messagesByLocale = {
       },
 
       messaging: {
+        slackBotToken: {
+          rejectedStatus: "トークンが拒否されました",
+          rejectedTitle: "Slack がボットトークンを拒否しました",
+          rejectedReason: "Slack の応答: {{code}}。",
+          rejectedFix:
+            "Slack アプリを再インストールして新しいボットトークンを保存するか、「Slack に追加」でワークスペースを接続してください。",
+          rejected: "拒否済み",
+        },
         managed: {
           connectionChecked: "Slack 接続を確認しました",
           workspaceDisconnected: "Slack ワークスペースを切断しました",
@@ -3912,6 +3960,14 @@ export const messagesByLocale = {
       },
 
       messaging: {
+        slackBotToken: {
+          rejectedStatus: "토큰 거부됨",
+          rejectedTitle: "Slack이 봇 토큰을 거부했습니다",
+          rejectedReason: "Slack 응답: {{code}}.",
+          rejectedFix:
+            "Slack 앱을 다시 설치하고 새 봇 토큰을 저장하거나, 'Slack에 추가'로 워크스페이스를 연결하세요.",
+          rejected: "거부됨",
+        },
         managed: {
           connectionChecked: "Slack 연결을 확인했습니다",
           workspaceDisconnected: "Slack 워크스페이스 연결을 해제했습니다",
@@ -4388,6 +4444,14 @@ export const messagesByLocale = {
       },
 
       messaging: {
+        slackBotToken: {
+          rejectedStatus: "Token rejeitado",
+          rejectedTitle: "O Slack rejeitou o token do bot",
+          rejectedReason: "O Slack respondeu {{code}}.",
+          rejectedFix:
+            "Reinstale o app do Slack e salve o novo token do bot, ou conecte o workspace com “Adicionar ao Slack”.",
+          rejected: "Rejeitado",
+        },
         managed: {
           connectionChecked: "Conexão do Slack verificada",
           workspaceDisconnected: "Workspace do Slack desconectado",
@@ -4861,6 +4925,14 @@ export const messagesByLocale = {
       },
 
       messaging: {
+        slackBotToken: {
+          rejectedStatus: "टोकन अस्वीकृत",
+          rejectedTitle: "Slack ने बॉट टोकन अस्वीकार कर दिया",
+          rejectedReason: "Slack ने {{code}} लौटाया।",
+          rejectedFix:
+            "Slack ऐप को फिर से इंस्टॉल करें और उसका नया बॉट टोकन सहेजें, या “Slack में जोड़ें” से वर्कस्पेस कनेक्ट करें।",
+          rejected: "अस्वीकृत",
+        },
         managed: {
           connectionChecked: "Slack कनेक्शन की जाँच पूरी हुई",
           workspaceDisconnected: "Slack कार्यस्थान डिस्कनेक्ट किया गया",
@@ -5357,6 +5429,14 @@ export const messagesByLocale = {
       },
 
       messaging: {
+        slackBotToken: {
+          rejectedStatus: "تم رفض الرمز",
+          rejectedTitle: "رفض Slack رمز البوت",
+          rejectedReason: "ردّ Slack بـ {{code}}.",
+          rejectedFix:
+            'أعد تثبيت تطبيق Slack واحفظ رمز البوت الجديد، أو اربط مساحة العمل عبر "إضافة إلى Slack".',
+          rejected: "مرفوض",
+        },
         managed: {
           connectionChecked: "تم التحقق من اتصال Slack",
           workspaceDisconnected: "تم قطع اتصال مساحة عمل Slack",

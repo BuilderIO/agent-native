@@ -72,6 +72,20 @@ describe("changed copy localization coverage", () => {
     );
   });
 
+  void it("accepts a wrapper that binds the inline locale block before extending it", () => {
+    const source = "/catalog/i18n-data.ts";
+    assert.equal(
+      hasForwardedInlineLocaleUpdate(
+        "es-ES",
+        new Set(["es-ES"]),
+        source,
+        source,
+        `import { messagesByLocale } from "../i18n-data";\n\nconst messages = messagesByLocale["es-ES"];\n\nexport default {\n  ...messages,\n};\n`,
+      ),
+      true,
+    );
+  });
+
   it("still fails when the target locale has no inline update", () => {
     const source = "/catalog/i18n-data.ts";
     assert.equal(

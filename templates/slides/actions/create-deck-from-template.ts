@@ -117,6 +117,7 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
+  mcpTool: "search",
   run: async ({ templateId, title, newId }, ctx) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail)

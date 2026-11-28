@@ -1,8 +1,4 @@
-import { createRequire } from "node:module";
-
-const { PGlite } = createRequire(
-  new URL("../../../../packages/core/package.json", import.meta.url),
-)("@electric-sql/pglite");
+import { closeDbExec, getDbExec } from "@agent-native/core/db";
 import {
   afterAll,
   beforeAll,
@@ -13,20 +9,6 @@ import {
   vi,
 } from "vitest";
 
-type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
-let client: PGliteClient;
-const statements: string[] = [];
-
-vi.mock("@agent-native/core/db", () => ({
-  getDbExec: () => ({
-    execute: async ({ sql, args = [] }: { sql: string; args?: unknown[] }) => {
-      statements.push(sql);
-      const result = await client.query(sql, args);
-      return { ...result, rowsAffected: result.affectedRows };
-    },
-  }),
-}));
-
 import {
   claimLease,
   countAttempt,
@@ -36,8 +18,8 @@ import {
 } from "./recording-leases.js";
 
 beforeAll(async () => {
-  client = await PGlite.create("memory://");
-  await client.exec(`
+  vi.stubEnv("DATABASE_URL", "pglite:memory");
+  await getDbExec().execute(`
     CREATE TABLE clips_backfill_leases (
       lease_key TEXT PRIMARY KEY,
       holder TEXT NOT NULL,
@@ -46,19 +28,40 @@ beforeAll(async () => {
       completed_at TEXT
     )
   `);
+  await getDbExec().execute(
+    "CREATE TABLE application_state (key TEXT PRIMARY KEY, value TEXT)",
+  );
+  await getDbExec().execute(
+    "CREATE TABLE application_state_writes (op TEXT NOT NULL)",
+  );
+  await getDbExec().execute(`
+    CREATE FUNCTION log_application_state_write() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    BEGIN
+      INSERT INTO application_state_writes (op) VALUES (TG_OP);
+      RETURN NULL;
+    END $$
+  `);
+  await getDbExec().execute(`
+    CREATE TRIGGER application_state_write_log
+    AFTER INSERT OR UPDATE OR DELETE ON application_state
+    FOR EACH ROW EXECUTE FUNCTION log_application_state_write()
+  `);
 }, 60_000);
 
 beforeEach(async () => {
-  statements.length = 0;
-  await client.exec(`DELETE FROM clips_backfill_leases`);
+  await getDbExec().execute(`DELETE FROM clips_backfill_leases`);
+  await getDbExec().execute(`DELETE FROM application_state_writes`);
 });
 
 afterAll(async () => {
-  await client.close();
+  await closeDbExec();
+  vi.unstubAllEnvs();
 });
 
 const rows = async () =>
-  (await client.query(`SELECT * FROM clips_backfill_leases`)).rows as Array<{
+  (await getDbExec().execute("SELECT * FROM clips_backfill_leases"))
+    .rows as Array<{
     lease_key: string;
     holder: string;
     expires_at: number | string | bigint;
@@ -110,14 +113,19 @@ describe("recording leases", () => {
 
   it("stores leases only in the lease table, so claims publish no sync events", async () => {
     const lease = (await claimLease("recording-thumbnail:a", 60_000))!;
+    expect(lease.table).toBe("clips_backfill_leases");
+    expect(await rows()).toHaveLength(1);
+    expect(await renewLease(lease, 60_000)).toBe(true);
     await releaseLease(lease);
     await countAttempt("thumbnail-sweeper-attempts:a");
 
-    expect(statements.length).toBeGreaterThan(0);
-    for (const sql of statements) {
-      expect(sql).toContain("clips_backfill_leases");
-      expect(sql).not.toContain("application_state");
-    }
+    expect(
+      (await getDbExec().execute("SELECT op FROM application_state_writes"))
+        .rows,
+    ).toEqual([]);
+    expect((await rows()).map((row) => row.lease_key)).toEqual([
+      "thumbnail-sweeper-attempts:a",
+    ]);
   });
 
   it("counts attempts durably and atomically", async () => {

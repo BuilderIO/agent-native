@@ -466,6 +466,9 @@ export function createAgentEngineApiKeyHandler() {
       try {
         await validateProviderBaseUrl(payload.baseUrl, {
           isOllama: payload.key === OLLAMA_BASE_URL_ENV_VAR,
+          allowPrivate:
+            payload.key === OPENAI_BASE_URL_ENV_VAR &&
+            isTrustedSelfHostedRuntime(),
           allowLocalOllama:
             payload.key === OLLAMA_BASE_URL_ENV_VAR &&
             isTrustedSelfHostedRuntime(),

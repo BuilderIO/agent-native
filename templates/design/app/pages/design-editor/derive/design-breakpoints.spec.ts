@@ -44,9 +44,34 @@ describe("deriveDesignBreakpoints", () => {
   });
 
   it("returns an empty list for missing or malformed sets", () => {
-    expect(deriveDesignBreakpoints({})).toEqual([]);
-    expect(deriveDesignBreakpoints({ breakpointSet: [] })).toEqual([]);
-    expect(deriveDesignBreakpoints({ breakpointSet: { id: "x" } })).toEqual([]);
+    const missing = deriveDesignBreakpoints({});
+    expect(missing).toEqual([]);
+    expect(deriveDesignBreakpoints({ breakpointSet: [] })).toBe(missing);
+    expect(deriveDesignBreakpoints({ breakpointSet: { id: "x" } })).toBe(
+      missing,
+    );
+  });
+
+  it("drops invalid widths, blank ids, and duplicates while trimming labels", () => {
+    expect(
+      deriveDesignBreakpoints({
+        breakpointSet: {
+          id: "set",
+          breakpoints: [
+            { id: "  ", widthPx: 640, label: "Blank id" },
+            { id: "zero", widthPx: 0, label: "Zero" },
+            { id: "neg", widthPx: -390, label: "Negative" },
+            { id: "m", widthPx: 390, label: "  Phone  " },
+            { id: "m", widthPx: 810, label: "Duplicate id" },
+            { id: "m-dup-width", widthPx: 390, label: "Duplicate width" },
+            { id: "t", widthPx: 810, label: "Tablet" },
+          ],
+        },
+      }),
+    ).toEqual([
+      { id: "m", widthPx: 390, label: "Phone" },
+      { id: "t", widthPx: 810, label: "Tablet" },
+    ]);
   });
 });
 
@@ -77,6 +102,20 @@ describe("optimistic breakpoint set patches", () => {
         id: "dup",
         label: "Tablet",
         widthPx: 768,
+      }),
+    ).toBe(added);
+    expect(
+      applyOptimisticBreakpointAdd(added, {
+        id: "t",
+        label: "Same id",
+        widthPx: 900,
+      }),
+    ).toBe(added);
+    expect(
+      applyOptimisticBreakpointAdd(added, {
+        id: "invalid-width",
+        label: "Bad",
+        widthPx: 0,
       }),
     ).toBe(added);
   });

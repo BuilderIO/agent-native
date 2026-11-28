@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { canonicalizeNfm } from "./nfm.js";
 import {
+  draftSuggestionAnchors,
   markdownSuggestionOperations,
   markdownSuggestionOperationsForEditorRevision,
   markdownSuggestionOperationsForFindReplace,
@@ -861,5 +862,186 @@ describe("suggestion decomposition", () => {
         start: 0,
       }),
     ).toEqual([]);
+  });
+});
+
+describe("a numbered list the editor renumbers", () => {
+  const list = (items: string[], start = 1) =>
+    [
+      "Packing list:",
+      ...items.map((item, index) => `${start + index}. ${item}`),
+      "That is everything.",
+    ].join("\n");
+  const before = list(["Tent", "Stove", "Water filter", "Headlamp", "Map"]);
+  const line = (text: string) =>
+    expect.stringMatching(
+      new RegExp(`^\\n?${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n?$`),
+    );
+
+  function editorOperations(after: string, page = before) {
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before: page,
+      after,
+      replacements: [],
+    });
+    expect(canonicalizeNfm(proposedFrom(page, operations))).toBe(
+      canonicalizeNfm(after),
+    );
+    return operations;
+  }
+
+  it("suggests an item added mid-list as its own line", () => {
+    const operations = editorOperations(
+      list(["Tent", "Stove", "Water filter", "Rain jacket", "Headlamp", "Map"]),
+    );
+    expect(operations).toMatchObject([
+      {
+        kind: "add_text_block",
+        before: { changedText: "" },
+        after: { changedText: "\n4. Rain jacket" },
+        anchor: { from: before.indexOf("\n4. Headlamp") },
+      },
+    ]);
+  });
+
+  it("numbers each of two items added apart as if it were the only one", () => {
+    const operations = editorOperations(
+      list([
+        "Tent",
+        "Rain jacket",
+        "Stove",
+        "Sunscreen",
+        "Water filter",
+        "Headlamp",
+        "Map",
+      ]),
+    );
+    expect(operations).toMatchObject([
+      {
+        kind: "add_text_block",
+        after: { changedText: "\n2. Rain jacket" },
+        anchor: { from: before.indexOf("\n2. Stove") },
+      },
+      {
+        kind: "add_text_block",
+        after: { changedText: "\n3. Sunscreen" },
+        anchor: { from: before.indexOf("\n3. Water filter") },
+      },
+    ]);
+  });
+
+  it("suggests an item added last after the line above it", () => {
+    const operations = editorOperations(
+      list(["Tent", "Stove", "Water filter", "Headlamp", "Map", "Sunscreen"]),
+    );
+    expect(operations).toMatchObject([
+      {
+        kind: "add_text_block",
+        after: { changedText: "\n6. Sunscreen" },
+        anchor: { from: before.indexOf("\nThat is everything.") },
+      },
+    ]);
+  });
+
+  it("suggests removing a mid-list item as its own line", () => {
+    const operations = editorOperations(
+      list(["Tent", "Water filter", "Headlamp", "Map"]),
+    );
+    expect(operations).toMatchObject([
+      {
+        kind: "delete_text",
+        before: { changedText: line("2. Stove") },
+        after: { changedText: "" },
+      },
+    ]);
+  });
+
+  it("keeps the list's start when an item is added first", () => {
+    const page = list(["Tent", "Stove"], 3);
+    const operations = editorOperations(
+      list(["Rain jacket", "Tent", "Stove"], 3),
+      page,
+    );
+    expect(operations).toMatchObject([
+      {
+        kind: "add_text_block",
+        after: { changedText: line("3. Rain jacket") },
+      },
+    ]);
+  });
+
+  it("keeps an item's text edit apart from an item added above it", () => {
+    const operations = editorOperations(
+      list([
+        "Tent",
+        "Rain jacket",
+        "Stove",
+        "Water filter",
+        "Headlamp",
+        "Maps",
+      ]),
+    );
+    expect(operations).toMatchObject([
+      {
+        kind: "add_text_block",
+        after: { changedText: line("2. Rain jacket") },
+      },
+      {
+        before: { changedText: expect.not.stringMatching(/\d/) },
+        after: { changedText: expect.not.stringMatching(/\d/) },
+      },
+    ]);
+  });
+
+  it("still previews items that swap places", () => {
+    const after = "1. A\n2. C\n3. B\n4. D";
+    const operations = editorOperations(after, "1. A\n2. B\n3. C\n4. D");
+    expect(() => draftSuggestionAnchors(operations, after)).not.toThrow();
+  });
+
+  it("leaves numbers that change where the list starts", () => {
+    const after = list(["Tent", "Stove", "Water filter", "Headlamp", "Map"], 4);
+    const operations = editorOperations(after);
+    expect(proposedFrom(before, operations)).toBe(after);
+  });
+
+  it("leaves numbered lines in code as typed", () => {
+    const page = ["```", "1. one", "2. two", "```", "1. Tent", "2. Stove"].join(
+      "\n",
+    );
+    const after = [
+      "```",
+      "1. one",
+      "3. two",
+      "```",
+      "1. Tent",
+      "2. Rain jacket",
+      "3. Stove",
+    ].join("\n");
+    expect(editorOperations(after, page)).toMatchObject([
+      { after: { changedText: expect.stringContaining("3") } },
+      {
+        kind: "add_text_block",
+        after: { changedText: line("2. Rain jacket") },
+      },
+    ]);
+  });
+
+  it("reads a code block's fence as the page does", () => {
+    const fence = ["````", "```", "````"];
+    const page = [...fence, "1. Tent", "2. Stove", "3. Headlamp"].join("\n");
+    const after = [
+      ...fence,
+      "1. Tent",
+      "2. Rain jacket",
+      "3. Stove",
+      "4. Headlamp",
+    ].join("\n");
+    expect(editorOperations(after, page)).toMatchObject([
+      {
+        kind: "add_text_block",
+        after: { changedText: line("2. Rain jacket") },
+      },
+    ]);
   });
 });

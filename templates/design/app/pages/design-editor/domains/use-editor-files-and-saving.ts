@@ -684,6 +684,9 @@ export function useEditorFilesAndSaving({
           getPendingBaseContent: (fileId) =>
             pendingLocalFileContentsRef.current.get(fileId)?.baseContent,
           readLiveFileContent: id ? readLiveFileContent : undefined,
+          onPersistedFileVersion: (fileId, file) => {
+            sourceLoader?.prime(fileId, file);
+          },
           queryClient,
           setPatchProof,
           t,
@@ -709,6 +712,7 @@ export function useEditorFilesAndSaving({
       rollbackPendingLocalFileContent,
       markPendingLocalFileContent,
       queryClient,
+      sourceLoader,
       t,
       updateFileMutation,
       warnChangesWillRetry,
@@ -1683,7 +1687,12 @@ export function useEditorFilesAndSaving({
     {
       enabled: canEditDesign && Boolean(id) && !shellMode,
       refetchInterval:
-        canEditDesign && Boolean(id) && !shellMode ? 2_000 : false,
+        canEditDesign &&
+        Boolean(id) &&
+        !shellMode &&
+        (isVisualEditSurface || hasLocalhostScreens)
+          ? 2_000
+          : false,
       notifyOnChangeProps: ["data", "error", "status"],
     },
   );

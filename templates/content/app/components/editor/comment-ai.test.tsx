@@ -10,6 +10,7 @@ import { agentLogoEngine } from "./agent-identity";
 import {
   acknowledgeCommentAiContinuation,
   boundedContinuationContext,
+  commentAiFailureReason,
   commentAiModelLabel,
   commentAiRequestsRefetchInterval,
   shouldReconcileCommentAiSnapshot,
@@ -217,14 +218,53 @@ describe("comment AI controls", () => {
       "comments.aiFailed",
     );
     expect(
-      document.querySelector('[role="alert"]')?.getAttribute("title"),
+      document.querySelector("[data-comment-ai-reason]")?.textContent,
     ).toBe(failed.error);
+    expect(
+      document.querySelector('[role="alert"]')?.hasAttribute("title"),
+    ).toBe(false);
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>("button")]
         .find((button) => button.textContent === "comments.retry")!
         .click(),
     );
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("says in words why a request failed, not only on hover", async () => {
+    await act(async () => {
+      root.render(
+        createElement(CommentAiRequestStatus, {
+          request: request({ error: "error:credits-limit-daily" }),
+          onRetry: vi.fn(),
+          onStop: vi.fn(),
+        }),
+      );
+    });
+    expect(
+      document.querySelector("[data-comment-ai-reason]")?.textContent,
+    ).toBe("agentChat.errorMessages.creditsLimitReached");
+
+    const t = (key: string) => key;
+    expect(commentAiFailureReason("The request failed", t)).toBe(
+      "The request failed",
+    );
+    expect(commentAiFailureReason("error:some_new_code", t)).toBe(
+      "comments.aiFailedNoReason",
+    );
+    expect(commentAiFailureReason("run_timeout", t)).toBe(
+      "comments.aiStoppedTimeLimit",
+    );
+    expect(commentAiFailureReason("no_progress", t)).toBe(
+      "comments.aiStoppedEarly",
+    );
+    expect(commentAiFailureReason("error:gateway_timeout", t)).toBe(
+      "comments.aiStoppedEarly",
+    );
+    expect(commentAiFailureReason("constructor", t)).toBe(
+      "comments.aiFailedNoReason",
+    );
+    expect(commentAiFailureReason(null, t)).toBeNull();
   });
 
   it.each([

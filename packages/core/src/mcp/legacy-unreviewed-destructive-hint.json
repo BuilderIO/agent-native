@@ -536,7 +536,6 @@
     "create-deck-from-template",
     "create-design-system",
     "delete-design-system",
-    "delete-slide-comment",
     "export-google-slides",
     "export-html",
     "export-pptx",
@@ -549,14 +548,11 @@
     "index-design-system-with-builder",
     "navigate",
     "restore-deck-version",
-    "set-default-design-system",
-    "set-workspace-defaults",
     "sync-design-system-with-builder",
     "toggle-slide-comment-reaction",
     "update-deck-aspect-ratio",
     "update-design-system",
     "update-slide-comment",
-    "update-slides-notification-prefs",
     "view-screen"
   ],
   "tasks": [

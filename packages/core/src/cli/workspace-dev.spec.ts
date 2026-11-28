@@ -1705,11 +1705,23 @@ describe("pnpmSpawnTarget", () => {
     expect(shell).toBe(true);
   });
 
-  it("refuses Windows args containing percent signs or quotes", () => {
-    expect(() => pnpmSpawnTarget(["C:\\%TEMP%\\x"], "win32")).toThrow(
+  it("refuses Windows args containing quotes", () => {
+    expect(() => pnpmSpawnTarget(['C:\\x"y'], "win32")).toThrow(
       /path contains/,
     );
     expect(() => pnpmSpawnTarget(['a"b'], "win32")).toThrow(/path contains/);
+  });
+
+  it("passes a Windows arg with percent signs through an environment variable", () => {
+    const dir = "C:\\Users\\%USERNAME%\\x";
+    const [command, args, shell, shimEnv] = pnpmSpawnTarget(
+      ["--dir", dir],
+      "win32",
+    );
+    expect(command).toBe('pnpm --dir "%AGENT_NATIVE_SHIM_ARG_1%"');
+    expect(args).toEqual([]);
+    expect(shell).toBe(true);
+    expect(shimEnv).toEqual({ AGENT_NATIVE_SHIM_ARG_1: dir });
   });
 
   it("doubles trailing backslashes so they cannot escape the closing quote", () => {

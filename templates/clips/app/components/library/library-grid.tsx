@@ -66,11 +66,7 @@ import { AppEmptyState, EmptyState } from "./empty-state";
 import { FilterChips, type FilterChip } from "./filter-chips";
 import { FolderCard } from "./folder-card";
 import { buildLibraryActionHrefs } from "./library-action-hrefs";
-import {
-  LibraryFilterBar,
-  LibraryFilterButton,
-  useLibraryFilter,
-} from "./library-filters";
+import { LibraryFilterButton, useLibraryFilter } from "./library-filters";
 import {
   PageBreadcrumb,
   PageHeader,
@@ -781,14 +777,6 @@ export function LibraryGrid({
           </div>
         </div>
       </PageHeader>
-
-      {filterable && !isEmptyState ? (
-        <LibraryFilterBar
-          filter={libraryFilter}
-          counts={filterSummary?.counts}
-          tags={filterSummary?.tags}
-        />
-      ) : null}
 
       {chips.length > 0 && (
         <div className="px-4">

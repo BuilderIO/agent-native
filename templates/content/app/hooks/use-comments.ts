@@ -2,6 +2,10 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import type {
+  ContentDatabaseItem,
+  ContentDatabaseItemComments,
+} from "@shared/api";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import type { CommentImage } from "@shared/comment-images";
 import {
@@ -150,10 +154,12 @@ interface MutationContext {
 
 interface CreateMutationContext extends MutationContext {
   temporaryId: string;
+  rowCommentCounts: RowCommentCounts | null;
 }
 
 interface UpdateMutationContext extends MutationContext {
   before: Map<string, Comment>;
+  rowCommentCounts: RowCommentCounts | null;
 }
 
 export interface CreateCommentVariables {
@@ -462,6 +468,120 @@ function invalidateCollectionRowsShowingDocument(
   });
 }
 
+interface RowCommentCountChange {
+  documentId: string;
+  propertyId: string | null;
+  threadId: string;
+  delta: 1 | -1;
+}
+
+interface ChangedCollectionRead {
+  queryHash: string;
+  dataUpdatedAt: number;
+}
+
+interface RowCommentCounts {
+  change: RowCommentCountChange;
+  reads: ChangedCollectionRead[];
+}
+
+function shiftedRowComments(
+  comments: ContentDatabaseItemComments | undefined,
+  { propertyId, threadId, delta }: RowCommentCountChange,
+): ContentDatabaseItemComments | undefined {
+  const open = Math.max(0, (comments?.open ?? 0) + delta);
+  if (open === 0) return undefined;
+  if (!propertyId) return { open, properties: { ...comments?.properties } };
+  const property = comments?.properties[propertyId];
+  const otherProperties = Object.fromEntries(
+    Object.entries(comments?.properties ?? {}).filter(
+      ([id]) => id !== propertyId,
+    ),
+  );
+  const propertyOpen = Math.max(0, (property?.open ?? 0) + delta);
+  if (propertyOpen === 0) return { open, properties: otherProperties };
+  return {
+    open,
+    properties: {
+      ...otherProperties,
+      [propertyId]: {
+        open: propertyOpen,
+        latestThreadId:
+          delta > 0 ? threadId : (property?.latestThreadId ?? threadId),
+      },
+    },
+  };
+}
+
+function withShiftedRowComments(
+  item: ContentDatabaseItem,
+  change: RowCommentCountChange,
+): ContentDatabaseItem {
+  const { comments: _comments, ...row } = item;
+  const comments = shiftedRowComments(item.comments, change);
+  return comments ? { ...row, comments } : row;
+}
+
+function shiftRowCommentCounts(
+  queryClient: ReturnType<typeof useQueryClient>,
+  change: RowCommentCountChange,
+  unreadSince?: readonly ChangedCollectionRead[],
+): ChangedCollectionRead[] {
+  const queryCache = queryClient.getQueryCache();
+  const queries = unreadSince
+    ? unreadSince.flatMap(({ queryHash, dataUpdatedAt }) => {
+        const query = queryCache.get(queryHash);
+        return query?.state.dataUpdatedAt === dataUpdatedAt ? [query] : [];
+      })
+    : queryCache.findAll(
+        collectionRowsShowingDocumentFilter(change.documentId),
+      );
+  const reads: ChangedCollectionRead[] = [];
+  for (const query of queries) {
+    const current = query.state.data as
+      | { items?: ContentDatabaseItem[] }
+      | undefined;
+    if (!current?.items) continue;
+    const items = current.items.map((item) =>
+      item.document.id === change.documentId
+        ? withShiftedRowComments(item, change)
+        : item,
+    );
+    const stale = query.state.isInvalidated;
+    const { dataUpdatedAt } = query.state;
+    queryClient.setQueryData(
+      query.queryKey,
+      { ...current, items },
+      { updatedAt: dataUpdatedAt },
+    );
+    if (stale) query.invalidate();
+    reads.push({ queryHash: query.queryHash, dataUpdatedAt });
+  }
+  return reads;
+}
+
+async function changeRowCommentCounts(
+  queryClient: ReturnType<typeof useQueryClient>,
+  change: RowCommentCountChange,
+): Promise<RowCommentCounts> {
+  await queryClient.cancelQueries(
+    collectionRowsShowingDocumentFilter(change.documentId),
+  );
+  return { change, reads: shiftRowCommentCounts(queryClient, change) };
+}
+
+function undoRowCommentCounts(
+  queryClient: ReturnType<typeof useQueryClient>,
+  { change, reads }: RowCommentCounts,
+) {
+  shiftRowCommentCounts(
+    queryClient,
+    { ...change, delta: change.delta > 0 ? -1 : 1 },
+    reads,
+  );
+  void invalidateCollectionRowsShowingDocument(queryClient, change.documentId);
+}
+
 function groupCommentThreads(data: unknown): CommentThread[] {
   const raw =
     data && typeof data === "object" && "comments" in data
@@ -596,10 +716,19 @@ export function useCreateComment(author: CommentAuthor = {}) {
           optimistic,
         ]),
       );
+      const rowCommentCounts = variables.parentId
+        ? null
+        : await changeRowCommentCounts(queryClient, {
+            documentId: variables.documentId,
+            propertyId: variables.propertyId ?? null,
+            threadId: optimistic.thread_id,
+            delta: 1,
+          });
       return {
         operationId,
         queryKey,
         temporaryId,
+        rowCommentCounts,
       } satisfies CreateMutationContext;
     },
     onSuccess: (result, variables, rawContext) => {
@@ -703,6 +832,9 @@ export function useCreateComment(author: CommentAuthor = {}) {
           ),
       );
       void invalidateDocumentComments(queryClient, context.queryKey);
+      if (context.rowCommentCounts) {
+        undoRowCommentCounts(queryClient, context.rowCommentCounts);
+      }
     },
   });
 
@@ -834,10 +966,25 @@ function useOptimisticCommentUpdate<
             ),
           ),
         );
+        const root = [...before.values()].find(({ parent_id }) => !parent_id);
+        const resolved =
+          kind === "resolve"
+            ? (variables as ResolveCommentVariables).resolved
+            : undefined;
+        const rowCommentCounts =
+          root && resolved !== undefined && Boolean(root.resolved) !== resolved
+            ? await changeRowCommentCounts(queryClient, {
+                documentId: variables.documentId,
+                propertyId: root.property_id ?? null,
+                threadId: root.thread_id,
+                delta: resolved ? -1 : 1,
+              })
+            : null;
         return {
           operationId,
           queryKey,
           before,
+          rowCommentCounts,
         } satisfies UpdateMutationContext;
       },
       onSuccess: (_result, _variables, rawContext) => {
@@ -911,6 +1058,17 @@ function useOptimisticCommentUpdate<
             error,
           });
         }
+        const { rowCommentCounts } = context;
+        const rootResolved = () =>
+          rowCommentCounts &&
+          commentsFrom(
+            queryClient.getQueryData<CommentListResponse>(context.queryKey),
+          ).find(
+            (comment) =>
+              comment.thread_id === rowCommentCounts.change.threadId &&
+              !comment.parent_id,
+          )?.resolved;
+        const resolvedBeforeRestore = rootResolved();
         queryClient.setQueryData<CommentListResponse>(
           context.queryKey,
           (response) =>
@@ -961,6 +1119,15 @@ function useOptimisticCommentUpdate<
             ),
         );
         void invalidateDocumentComments(queryClient, context.queryKey);
+        if (!rowCommentCounts) return;
+        if (rootResolved() !== resolvedBeforeRestore) {
+          undoRowCommentCounts(queryClient, rowCommentCounts);
+        } else {
+          void invalidateCollectionRowsShowingDocument(
+            queryClient,
+            rowCommentCounts.change.documentId,
+          );
+        }
       },
     },
   );

@@ -24,6 +24,37 @@ export interface MirrorSelectionToAgentChatArgs {
   selectedCodeLayerNode: CodeLayerNode | null;
   selectedElement: ElementInfo | null;
   sentSelectionIdRef: RefObject<string | null>;
+  excerptDebounceMs?: number;
+  debounceTimerRef?: RefObject<ReturnType<typeof setTimeout> | null>;
+  pendingItemRef?: RefObject<{
+    key: string;
+    title: string;
+    context: string;
+    openSidebar: boolean;
+    focus: boolean;
+  } | null>;
+}
+
+export function flushPendingMirroredSelectionToAgentChat(args: {
+  debounceTimerRef: RefObject<ReturnType<typeof setTimeout> | null>;
+  pendingItemRef: RefObject<{
+    key: string;
+    title: string;
+    context: string;
+    openSidebar: boolean;
+    focus: boolean;
+  } | null>;
+  composerContextHasOurKeyRef: RefObject<boolean>;
+}): void {
+  if (args.debounceTimerRef.current !== null) {
+    globalThis.clearTimeout(args.debounceTimerRef.current);
+    args.debounceTimerRef.current = null;
+  }
+  const pending = args.pendingItemRef.current;
+  args.pendingItemRef.current = null;
+  if (!pending) return;
+  setAgentChatContextItem(pending);
+  args.composerContextHasOurKeyRef.current = true;
 }
 
 export function runMirrorSelectionToAgentChat({
@@ -38,14 +69,28 @@ export function runMirrorSelectionToAgentChat({
   selectedCodeLayerNode,
   selectedElement,
   sentSelectionIdRef,
+  excerptDebounceMs = 0,
+  debounceTimerRef,
+  pendingItemRef,
 }: MirrorSelectionToAgentChatArgs) {
   const key = "design:selected-element";
-  if (!isSignedIn) return;
+  const clearPendingDebounce = () => {
+    if (debounceTimerRef && debounceTimerRef.current !== null) {
+      globalThis.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    if (pendingItemRef) pendingItemRef.current = null;
+  };
+  if (!isSignedIn) {
+    clearPendingDebounce();
+    return;
+  }
   if (
     !id ||
     !activeFile ||
     !shouldMirrorSelectedElementToAgentChat(selectedElement)
   ) {
+    clearPendingDebounce();
     mirroredSelectionIdRef.current = null;
     mirroredExcerptRef.current = null;
     sentSelectionIdRef.current = null;
@@ -67,7 +112,8 @@ export function runMirrorSelectionToAgentChat({
     "placeholder",
   );
 
-  if (selectionId !== mirroredSelectionIdRef.current) {
+  const sameSelection = selectionId === mirroredSelectionIdRef.current;
+  if (!sameSelection) {
     sentSelectionIdRef.current = null;
   } else if (
     sentSelectionIdRef.current === selectionId ||
@@ -120,17 +166,38 @@ export function runMirrorSelectionToAgentChat({
       : "",
   ].filter(Boolean);
 
-  setAgentChatContextItem(
-    stripInlineBytes(
-      {
-        key,
-        title: shortLabel,
-        context: contextLines.join("\n"),
-        openSidebar: false,
-        focus: false,
-      },
-      "placeholder",
-    ),
+  const item = stripInlineBytes(
+    {
+      key,
+      title: shortLabel,
+      context: contextLines.join("\n"),
+      openSidebar: false,
+      focus: false,
+    },
+    "placeholder",
   );
+
+  if (
+    sameSelection &&
+    excerptDebounceMs > 0 &&
+    debounceTimerRef &&
+    pendingItemRef
+  ) {
+    pendingItemRef.current = item;
+    if (debounceTimerRef.current !== null) {
+      globalThis.clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = globalThis.setTimeout(() => {
+      flushPendingMirroredSelectionToAgentChat({
+        debounceTimerRef,
+        pendingItemRef,
+        composerContextHasOurKeyRef,
+      });
+    }, excerptDebounceMs);
+    return;
+  }
+
+  clearPendingDebounce();
+  setAgentChatContextItem(item);
   composerContextHasOurKeyRef.current = true;
 }

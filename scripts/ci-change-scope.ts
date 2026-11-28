@@ -802,6 +802,7 @@ const CORE_INTEGRATION_PATH_PREFIXES = [
 ] as const;
 
 const CORE_INTEGRATION_RUNTIME_FILES = new Set([
+  "packages/core/src/application-state/store.ts",
   "packages/core/src/client/route-chunk-recovery.ts",
   "packages/core/src/client/session-replay-iframe.e2e-host.tsx",
   "packages/core/src/extensions/session-replay-iframe.ts",
@@ -830,6 +831,7 @@ const CORE_INTEGRATION_TEST_FILES = new Set([
   "packages/core/src/agent/run-store.fencing.postgres.integration.spec.ts",
   "packages/core/src/client/route-chunk-recovery.e2e.spec.ts",
   "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
+  "packages/core/src/db/leases.postgres.integration.spec.ts",
   "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
   "packages/core/src/scripts/db/migrate-encrypt-credentials.e2e.spec.ts",
   "packages/core/src/scripts/db/scope-isolation.e2e.spec.ts",

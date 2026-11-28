@@ -26,6 +26,10 @@ import {
   ORGANIZATION_LOGO_PURPOSE,
 } from "../../shared/organization-logo.js";
 import { checkpointMediaUpload } from "./recording-media-production-context.js";
+import {
+  CLIPS_HOSTED_UPLOAD_PROVIDER_ID,
+  S3_UPLOAD_PROVIDER_ID,
+} from "./s3-upload-provider-ids.js";
 
 interface S3Config {
   region: string;
@@ -993,7 +997,10 @@ export async function s3ObjectSizeBytesByUrl(
 function createS3FileUploadProvider(
   storageMode: ClipsS3StorageMode,
 ): FileUploadProvider {
-  const id = storageMode === "hosted" ? "clips-hosted" : "s3";
+  const id =
+    storageMode === "hosted"
+      ? CLIPS_HOSTED_UPLOAD_PROVIDER_ID
+      : S3_UPLOAD_PROVIDER_ID;
   const name =
     storageMode === "hosted" ? "Clips hosted storage" : "S3-compatible storage";
   return {

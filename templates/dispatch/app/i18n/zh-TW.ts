@@ -246,6 +246,14 @@ const messages = {
     editGroupAria: "編輯 {{name}}",
   },
   messaging: {
+    slackBotToken: {
+      rejectedStatus: "權杖遭拒",
+      rejectedTitle: "Slack 拒絕了機器人權杖",
+      rejectedReason: "Slack 回應 {{code}}。",
+      rejectedFix:
+        "請重新安裝 Slack 應用程式並儲存新的機器人權杖，或透過「新增至 Slack」連接工作區。",
+      rejected: "已拒絕",
+    },
     managed: {
       connectionChecked: "已檢查 Slack 連線",
       workspaceDisconnected: "已中斷 Slack 工作區連線",

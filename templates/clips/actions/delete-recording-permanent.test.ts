@@ -82,13 +82,11 @@ vi.mock("@agent-native/core/application-state", () => ({
   deleteAppState: async (key: string) => {
     await client.query("DELETE FROM application_state WHERE key=$1", [key]);
   },
-  // Only conditional deletes go through here.
   compareAndSetAppState: async (
     key: string,
     expected: unknown,
     next: unknown,
   ) => {
-    if (next !== null) throw new Error("Only deletes are faked here.");
     const found = await client.query<{ value: string }>(
       "SELECT value FROM application_state WHERE key=$1",
       [key],
@@ -96,7 +94,12 @@ vi.mock("@agent-native/core/application-state", () => ({
     const row = found.rows.length ? found.rows[0] : null;
     const current: unknown = row ? JSON.parse(row.value) : null;
     if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
-    await client.query("DELETE FROM application_state WHERE key=$1", [key]);
+    await client.query(
+      next === null
+        ? "DELETE FROM application_state WHERE key=$1"
+        : "UPDATE application_state SET value=$2 WHERE key=$1",
+      next === null ? [key] : [key, JSON.stringify(next)],
+    );
     return true;
   },
 }));

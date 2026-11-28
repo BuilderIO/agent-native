@@ -978,6 +978,71 @@ describe("MultiScreenCanvas live boot budget", () => {
     ).toHaveLength(3);
     expect(container.querySelector("[data-screen-placeholder]")).toBeNull();
   });
+
+  it("enables level-of-detail on a dense 10-screen board so only the active screen boots live while visible screens preview and hydrate first", async () => {
+    const geometryById = Object.fromEntries(
+      Array.from({ length: 10 }, (_, index) => [
+        `dense-${index}`,
+        { x: index * 1500, y: 0, width: 1440, height: 900 },
+      ]),
+    );
+    const unloadedScreens = Array.from({ length: 10 }, (_, index) => ({
+      id: `dense-${index}`,
+      filename: `dense-${index}.html`,
+      content: "",
+      contentBytes: 425_000,
+      sourceState: "unloaded" as const,
+    }));
+    const onSourceDemandChange = vi.fn();
+
+    await act(async () => {
+      renderWithQueryClient(
+        <MultiScreenCanvas
+          screens={unloadedScreens}
+          zoom={10}
+          activeId="dense-0"
+          onSourceDemandChange={onSourceDemandChange}
+          creation={{ activeTool: "move" }}
+          geometry={{ geometryById }}
+          renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    expect(liveScreenIds()).toEqual([]);
+    expect(onSourceDemandChange).toHaveBeenCalled();
+    const coldDemand = onSourceDemandChange.mock.calls[
+      onSourceDemandChange.mock.calls.length - 1
+    ]?.[0] as { pinned: string[]; preview: string[] } | undefined;
+    expect(coldDemand?.pinned).toEqual(["dense-0"]);
+    expect(coldDemand?.preview).not.toContain("dense-0");
+    expect(coldDemand?.preview.length).toBeGreaterThan(0);
+
+    const hydratedScreens = unloadedScreens.map((screen) => ({
+      ...screen,
+      content: "<!doctype html><html><body>dense</body></html>",
+      sourceState: "ready" as const,
+    }));
+    await act(async () => {
+      renderWithQueryClient(
+        <MultiScreenCanvas
+          screens={hydratedScreens}
+          zoom={10}
+          activeId="dense-0"
+          onSourceDemandChange={onSourceDemandChange}
+          creation={{ activeTool: "move" }}
+          geometry={{ geometryById }}
+          renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
+          onPick={() => {}}
+        />,
+      );
+    });
+    expect(liveScreenIds()).toEqual(["dense-0"]);
+    expect(
+      container.querySelectorAll("iframe[data-screen-static-preview]").length,
+    ).toBeGreaterThanOrEqual(4);
+  });
 });
 
 function trustedPanWheel(deltaX: number) {

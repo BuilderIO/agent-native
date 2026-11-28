@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { scanActionDir } from "./files.js";
+
 const SKIP_FILES = new Set([
   "context",
   "helpers",
@@ -36,6 +38,16 @@ function toPosixRelative(fromDir: string, targetFile: string): string {
   return rel.startsWith(".") ? rel : `./${rel}`;
 }
 
+function findContextFile(actionsDir: string): string | null {
+  for (const ext of ACTION_EXTENSIONS) {
+    const candidate = path.join(actionsDir, `context${ext}`);
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 export function scanActionsDirectory(
   projectRoot: string,
   options: { actionsDir?: string; generatedDir?: string } = {},
@@ -50,54 +62,20 @@ export function scanActionsDirectory(
     return { actions: [], contextFile: null };
   }
 
-  let contextFile: string | null = null;
-  const entries = fs
-    .readdirSync(actionsDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const contextFile = findContextFile(actionsDir);
+  const discovered = scanActionDir(actionsDir, SKIP_FILES, {
+    extensions: ACTION_EXTENSIONS,
+  });
 
-  const seenNames = new Map<string, string>();
-  const actions: ScannedActionFile[] = [];
-
-  for (const entry of entries) {
-    if (
-      entry.name.endsWith(".d.ts") ||
-      entry.name.includes(".spec.") ||
-      entry.name.includes(".test.") ||
-      entry.name.startsWith("_") ||
-      entry.name.startsWith(".")
-    ) {
-      continue;
-    }
-
-    const ext = path.extname(entry.name);
-    if (!ACTION_EXTENSIONS.has(ext)) continue;
-
-    const baseName = entry.name.slice(0, -ext.length);
-    const fullPath = path.join(actionsDir, entry.name);
-
-    if (baseName === "context") {
-      contextFile = fullPath;
-      continue;
-    }
-
-    if (SKIP_FILES.has(baseName)) continue;
-
-    const existing = seenNames.get(baseName);
-    if (existing) {
-      throw new Error(
-        `Duplicate action name "${baseName}" found in ${existing} and ${fullPath}.`,
-      );
-    }
-    seenNames.set(baseName, fullPath);
-
-    actions.push({
-      name: baseName,
+  const actions: ScannedActionFile[] = discovered.map((entry, index) => {
+    const fullPath = path.join(actionsDir, entry.relPath);
+    return {
+      name: entry.name,
       filePath: fullPath,
       relativeImport: toPosixRelative(generatedDir, fullPath),
-      identifier: toValidIdentifier(baseName, actions.length),
-    });
-  }
+      identifier: toValidIdentifier(entry.name, index),
+    };
+  });
 
   return { actions, contextFile };
 }

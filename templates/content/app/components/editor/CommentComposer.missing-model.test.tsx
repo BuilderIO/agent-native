@@ -2,10 +2,11 @@
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
-import { act, type ReactElement, useState } from "react";
+import { act, type ReactElement, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { T3AgentRequestsContext } from "@/hooks/use-t3-agents";
 import { messagesByLocale } from "@/i18n-data";
 
 import { typeRichEditorText } from "./comment-composer-test-utils";
@@ -112,6 +113,7 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
   let container: HTMLDivElement;
   let root: Root;
   let handle: TiptapComposerHandle | null = null;
+  let savedValue = "";
 
   function Owner({
     initialAi = null,
@@ -122,6 +124,9 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
   }) {
     const [value, setValue] = useState(initialValue);
     const [aiDraft, setAiDraft] = useState<CommentAiDraft | null>(initialAi);
+    useEffect(() => {
+      savedValue = value;
+    }, [value]);
     return (
       <AgentNativeI18nProvider
         initialLocale="en-US"
@@ -551,5 +556,109 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
 
     expect(editor().textContent).toContain("Claude Sonnet 5");
     expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "anthropic");
+  });
+
+  it("lists signed-out models with a way to sign in again", async () => {
+    savedPickReady([]);
+    models.current = {
+      ...models.current,
+      availableModels: [
+        { ...builderGroup, configured: false },
+        { ...claudeGroup, configured: false, models: ["claude-opus-5"] },
+      ],
+    };
+    const opened: unknown[] = [];
+    const savedAtOpen: string[] = [];
+    const listen = (event: Event) => {
+      opened.push((event as CustomEvent).detail);
+      savedAtOpen.push(savedValue);
+    };
+    window.addEventListener("agent-panel:open-settings", listen);
+    await render(<Owner />);
+
+    await typeRichEditorText(editor(), "@");
+    await settle();
+    const rows = [...document.querySelectorAll('[role="option"]')].map(
+      (row) => row.textContent,
+    );
+    expect(rows).toEqual([
+      expect.stringContaining("Sign in to use"),
+      expect.stringContaining("Sign in to use"),
+    ]);
+    expect(rows.join(" ")).not.toContain("Claude Opus 5");
+
+    await act(async () => {
+      editor().dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Tab",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await settle();
+    window.removeEventListener("agent-panel:open-settings", listen);
+
+    expect(opened).toEqual([{ section: "llm" }]);
+    expect(savedAtOpen).toEqual([savedValue]);
+    expect(savedValue).not.toContain("@");
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(
+      container.querySelector(
+        '[data-mention-ref-type="content-comment-ai-sign-in"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("offers sign-in for the engine of a saved pick that is no longer connected", async () => {
+    staleSavedPick([]);
+    models.current = {
+      ...models.current,
+      availableModels: [
+        { ...builderGroup, configured: false },
+        { ...claudeGroup, configured: false, models: ["claude-opus-5"] },
+      ],
+    };
+    await render(<Owner />);
+
+    await typeRichEditorText(editor(), "@");
+    await settle();
+    const rows = [...document.querySelectorAll('[role="option"]')].map(
+      (row) => row.textContent,
+    );
+    expect(rows).toEqual([
+      expect.stringMatching(/Claude Opus 5.*Sign in to use/),
+    ]);
+  });
+
+  it("keeps your own agents beside the signed-out models", async () => {
+    staleSavedPick([]);
+    models.current = {
+      ...models.current,
+      availableModels: [
+        { ...claudeGroup, configured: false, models: ["claude-opus-5"] },
+      ],
+    };
+    await render(
+      <T3AgentRequestsContext.Provider
+        value={{
+          agents: [{ kind: "claude-code", name: "Claude Code" }],
+          requests: [],
+          unreachable: false,
+        }}
+      >
+        <Owner />
+      </T3AgentRequestsContext.Provider>,
+    );
+
+    await typeRichEditorText(editor(), "@");
+    await settle();
+    const rows = [...document.querySelectorAll('[role="option"]')].map(
+      (row) => row.textContent,
+    );
+    expect(rows).toEqual([
+      expect.stringMatching(/Claude Opus 5.*Sign in to use/),
+      expect.stringContaining("Claude Code"),
+    ]);
   });
 });

@@ -1,4 +1,9 @@
-import { canonicalizeNfm } from "./nfm.js";
+import {
+  canonicalizeNfm,
+  closesFence,
+  FENCE_CLOSE,
+  matchFenceOpen,
+} from "./nfm.js";
 import {
   suggestionFormattingChanges,
   suggestionMarkedSourceRanges,
@@ -1288,6 +1293,209 @@ export function markdownSuggestionOperationsForReplacements(input: {
   return isolateSiblingAnchorContexts(result);
 }
 
+const ORDERED_ITEM = /^(\t*)(\d+)([.)] )/;
+const MAX_LIST_LINE_CELLS = 250_000;
+
+interface OrderedItem {
+  indent: string;
+  digits: string;
+  marker: string;
+}
+
+interface ListLine {
+  key: string;
+  indent: number;
+  line: string;
+  item: OrderedItem | null;
+}
+
+function itemAt<T>(items: readonly T[], index: number): T | undefined {
+  return items[index];
+}
+
+function orderedItem(line: string): OrderedItem | null {
+  const match = ORDERED_ITEM.exec(line);
+  if (!match) return null;
+  const indent = itemAt(match, 1);
+  const digits = itemAt(match, 2);
+  const marker = itemAt(match, 3);
+  return indent === undefined || digits === undefined || marker === undefined
+    ? null
+    : { indent, digits, marker };
+}
+
+function listLines(markdown: string): ListLine[] {
+  let fence: string | null = null;
+  return markdown.split("\n").map((line) => {
+    const text = line.replace(/^\t+/, "");
+    const indent = line.length - text.length;
+    let item: OrderedItem | null = null;
+    if (fence) {
+      if (closesFence(text.match(FENCE_CLOSE), fence)) fence = null;
+    } else {
+      fence = matchFenceOpen(text)?.[1] ?? null;
+      if (!fence) item = orderedItem(line);
+    }
+    return {
+      key: item
+        ? `\0${item.indent}${item.marker}${line.slice(
+            item.indent.length + item.digits.length + item.marker.length,
+          )}`
+        : line,
+      indent,
+      line,
+      item,
+    };
+  });
+}
+
+export function listNumberDifferences(
+  from: string,
+  to: string,
+): Array<{ from: number; to: number; number: string }> | null {
+  const fromLines = from.split("\n");
+  const toLines = to.split("\n");
+  if (fromLines.length !== toLines.length) return null;
+  const differences: Array<{ from: number; to: number; number: string }> = [];
+  let offset = 0;
+  for (const [index, line] of fromLines.entries()) {
+    const other = toLines[index] ?? "";
+    if (line !== other) {
+      const item = orderedItem(line);
+      const otherItem = orderedItem(other);
+      if (
+        !item ||
+        !otherItem ||
+        item.indent !== otherItem.indent ||
+        line.slice(item.indent.length + item.digits.length) !==
+          other.slice(otherItem.indent.length + otherItem.digits.length)
+      )
+        return null;
+      const start = offset + item.indent.length;
+      differences.push({
+        from: start,
+        to: start + item.digits.length,
+        number: otherItem.digits,
+      });
+    }
+    offset += line.length + 1;
+  }
+  return differences;
+}
+
+function sharedLines(
+  before: ListLine[],
+  after: ListLine[],
+): Array<[number, number]> {
+  const sameKey = (beforeIndex: number, afterIndex: number) =>
+    before[beforeIndex]?.key === after[afterIndex]?.key;
+  const pairs: Array<[number, number]> = [];
+  let start = 0;
+  while (
+    start < before.length &&
+    start < after.length &&
+    sameKey(start, start)
+  ) {
+    pairs.push([start, start]);
+    start += 1;
+  }
+  let end = 0;
+  while (
+    end < before.length - start &&
+    end < after.length - start &&
+    sameKey(before.length - 1 - end, after.length - 1 - end)
+  ) {
+    end += 1;
+  }
+  const rows = before.length - start - end;
+  const columns = after.length - start - end;
+  if (rows > 0 && columns > 0 && rows * columns <= MAX_LIST_LINE_CELLS) {
+    const width = columns + 1;
+    const common = new Uint32Array((rows + 1) * width);
+    const commonAt = (row: number, column: number) =>
+      common[row * width + column] ?? 0;
+    for (let row = rows - 1; row >= 0; row -= 1) {
+      for (let column = columns - 1; column >= 0; column -= 1) {
+        common[row * width + column] = sameKey(start + row, start + column)
+          ? commonAt(row + 1, column + 1) + 1
+          : Math.max(commonAt(row + 1, column), commonAt(row, column + 1));
+      }
+    }
+    for (let row = 0, column = 0; row < rows && column < columns; ) {
+      if (sameKey(start + row, start + column)) {
+        pairs.push([start + row, start + column]);
+        row += 1;
+        column += 1;
+      } else if (commonAt(row + 1, column) >= commonAt(row, column + 1)) {
+        row += 1;
+      } else {
+        column += 1;
+      }
+    }
+  }
+  for (let index = end; index > 0; index -= 1)
+    pairs.push([before.length - index, after.length - index]);
+  return pairs;
+}
+
+function withPageListNumbers(page: string, draft: string): string {
+  const draftLines = listLines(draft);
+  if (!draftLines.some((line) => line.item)) return draft;
+  const pageLines = listLines(page);
+  const pageNumbers = new Map<number, string>();
+  for (const [pageIndex, draftIndex] of sharedLines(pageLines, draftLines)) {
+    const pageItem = pageLines[pageIndex]?.item;
+    if (pageItem && draftLines[draftIndex]?.item)
+      pageNumbers.set(draftIndex, pageItem.digits);
+  }
+  const numbered = draft.split("\n");
+  const openListNumbers = new Map<number, number>();
+  let changed = false;
+  for (const [index, line] of draftLines.entries()) {
+    for (const indent of openListNumbers.keys())
+      if (indent > line.indent) openListNumbers.delete(indent);
+    if (!line.item) {
+      openListNumbers.delete(line.indent);
+      continue;
+    }
+    const { indent, digits } = line.item;
+    const previous = openListNumbers.get(line.indent);
+    const number =
+      pageNumbers.get(index) ??
+      (previous === undefined ? digits : String(previous + 1));
+    openListNumbers.set(line.indent, Number(number));
+    if (number === digits) continue;
+    numbered[index] =
+      indent + number + line.line.slice(indent.length + digits.length);
+    changed = true;
+  }
+  if (!changed) return draft;
+  const renumbered = numbered.join("\n");
+  return canonicalizeNfm(renumbered) === canonicalizeNfm(draft)
+    ? renumbered
+    : draft;
+}
+
+function listItemAfterLineEnd(
+  before: string,
+  operation: MarkdownSuggestionOperation,
+): MarkdownSuggestionOperation {
+  const { from, to } = operation.anchor;
+  const inserted = operation.after.changedText;
+  return from === to &&
+    before[from - 1] === "\n" &&
+    inserted.endsWith("\n") &&
+    ORDERED_ITEM.test(inserted)
+    ? operationForChange(
+        before,
+        from - 1,
+        from - 1,
+        `\n${inserted.slice(0, -1)}`,
+        operation.ordinal,
+      )
+    : operation;
+}
+
 export function markdownSuggestionOperationsForEditorRevision(input: {
   before: string;
   after: string;
@@ -1332,31 +1540,44 @@ export function markdownSuggestionOperationsForEditorRevision(input: {
     if (!range) throw new SuggestionFormattingMappingError();
     return range;
   });
-  const operations = markdownSuggestionOperationsForReplacements({
-    before: editorBefore,
-    after: input.after,
-    replacements,
-  });
-  return isolateSiblingAnchorContexts(
-    (alignment &&
-      alignedStoredOperations(
-        input.before,
-        input.after,
-        operations,
-        alignment,
-      )) ??
-      operations.map((operation, ordinal) => {
-        const range = resolveMarkdownSuggestionRange(input.before, operation);
-        if (!range) throw new SuggestionFormattingMappingError();
-        return operationForChange(
+  const operationsFor = (after: string) => {
+    const operations = markdownSuggestionOperationsForReplacements({
+      before: editorBefore,
+      after,
+      replacements,
+    }).map((operation) => listItemAfterLineEnd(editorBefore, operation));
+    return isolateSiblingAnchorContexts(
+      (alignment &&
+        alignedStoredOperations(
           input.before,
-          range.from,
-          range.to,
-          operation.after.changedText,
-          ordinal,
-        );
-      }),
-  );
+          input.after,
+          operations,
+          alignment,
+        )) ??
+        operations.map((operation, ordinal) => {
+          const range = resolveMarkdownSuggestionRange(input.before, operation);
+          if (!range) throw new SuggestionFormattingMappingError();
+          return operationForChange(
+            input.before,
+            range.from,
+            range.to,
+            operation.after.changedText,
+            ordinal,
+          );
+        }),
+    );
+  };
+  const numbered = withPageListNumbers(editorBefore, input.after);
+  if (numbered !== input.after) {
+    try {
+      const operations = operationsFor(numbered);
+      draftSuggestionAnchors(operations, input.after);
+      return operations;
+    } catch (error) {
+      if (!(error instanceof SuggestionFormattingMappingError)) throw error;
+    }
+  }
+  return operationsFor(input.after);
 }
 
 function alignedRange(
@@ -1491,7 +1712,7 @@ export function draftSuggestionAnchors(
     if (
       from === undefined ||
       to === undefined ||
-      draft.slice(from, to) !== operation.after.changedText
+      !listNumberDifferences(operation.after.changedText, draft.slice(from, to))
     )
       throw new SuggestionFormattingMappingError();
     delta +=

@@ -64,6 +64,7 @@ import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { sameSourceMarkdown } from "@shared/source-markdown";
 import {
   joinRewrittenParagraphs,
+  listNumberDifferences,
   markdownSuggestionOperations,
 } from "@shared/suggestion-diff";
 import {
@@ -303,6 +304,7 @@ import {
   DOCUMENT_EDITOR_TITLE_CLASS_NAME,
   documentEditorBodyClassName,
   documentEditorDatabaseRegionClassName,
+  documentEditorIconRowClassName,
   documentEditorTitleRegionClassName,
   type DocumentEditorIconRow,
 } from "./document-editor-layout";
@@ -1038,21 +1040,34 @@ export function documentEditorSuggestionPresentations(args: {
     };
     const beforeMarkdown = (operation.before as { markdown: string }).markdown;
     const operationAnchor = operation.anchor as { from: number; to: number };
+    const shownText = args.currentMarkdown.slice(
+      suggestion.anchor.from,
+      suggestion.anchor.to,
+    );
+    const renumbered =
+      shownText !== after.changedText &&
+      listNumberDifferences(after.changedText, shownText) !== null;
     draftPresentations.push({
       id: suggestion.id,
       kind: operation.kind as VisualEditorSuggestion["kind"],
       beforeText: before.changedText,
-      afterText: after.changedText,
+      afterText: renumbered ? shownText : after.changedText,
       beforePresentation: {
         source: beforeMarkdown,
         from: operationAnchor.from,
         to: operationAnchor.to,
       },
-      afterPresentation: {
-        source: after.markdown,
-        from: operationAnchor.from,
-        to: operationAnchor.from + after.changedText.length,
-      },
+      afterPresentation: renumbered
+        ? {
+            source: args.currentMarkdown,
+            from: suggestion.anchor.from,
+            to: suggestion.anchor.to,
+          }
+        : {
+            source: after.markdown,
+            from: operationAnchor.from,
+            to: operationAnchor.from + after.changedText.length,
+          },
       anchor: suggestion.anchor,
       presentation: "draft",
     });
@@ -9235,7 +9250,7 @@ function PageEditorSessionBody({
   const pagePanelOpenRef = useRef(false);
   const pagePanelLastTabRef = useRef<DocumentPagePanelTab | null>(null);
   const pagePanelReturnFocusRef = useRef<HTMLElement | null>(null);
-  const pagePanelFocusInsideRef = useRef(false);
+  const pagePanelFocusInsideRef = useRef<boolean | "heading">(false);
   // A row preview's panel sits in the same document as its collection's.
   const pagePanelId = host === "page" ? undefined : "document-row-panel";
   const pagePanelComposerRef = useRef<TiptapComposerHandle>(null);
@@ -9948,9 +9963,12 @@ function PageEditorSessionBody({
     const panel = pagePanelRef.current;
     if (pagePanelTab) {
       if (!pagePanelFocusInsideRef.current) return;
+      const focusHeading = pagePanelFocusInsideRef.current === "heading";
       pagePanelFocusInsideRef.current = false;
       const composer =
-        pagePanelTab === "comments" ? pagePanelComposerRef.current : null;
+        pagePanelTab === "comments" && !focusHeading
+          ? pagePanelComposerRef.current
+          : null;
       if (composer) {
         composer.focus();
         return;
@@ -10382,11 +10400,14 @@ function PageEditorSessionBody({
   );
 
   const handlePagePanelChange = useCallback(
-    (next: DocumentPagePanelTab | null) => {
+    (next: DocumentPagePanelTab | null, focusInside = false) => {
       // Discussion's tab or key brings back the Discussion that stepped aside.
       if (next === "comments" && peeking) {
         leaveDiscussionPeek();
         return;
+      }
+      if (focusInside) {
+        pagePanelFocusInsideRef.current = next === null ? false : "heading";
       }
       const activeElement = globalThis.document.activeElement;
       if (
@@ -10409,7 +10430,7 @@ function PageEditorSessionBody({
       if (
         sendPagePanelAgentCommand(next, {
           ownsAgent: showAgentTab,
-          focus: pagePanelFocusInsideRef.current,
+          focus: pagePanelFocusInsideRef.current !== false,
         })
       ) {
         return;
@@ -11895,6 +11916,7 @@ function PageEditorSessionBody({
         <div className="col-span-2 min-w-0">
           <DocumentToolbar
             compact={host === "preview"}
+            pageEditorOwner={pageEditorOwner}
             documentId={documentId}
             documentTitle={exportTitle}
             documentContent={exportContent}
@@ -11986,7 +12008,11 @@ function PageEditorSessionBody({
           />
         </div>
         <div
-          className="col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col"
+          className={cn(
+            "col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col",
+            host === "preview" &&
+              "[&>:first-child:not([data-document-print-scroll])]:mt-16 sm:[&>:first-child:not([data-document-print-scroll])]:mt-14",
+          )}
           inert={pageUnderSheet || undefined}
         >
           <ContentImportDialog
@@ -12201,7 +12227,12 @@ function PageEditorSessionBody({
                     host,
                   )}
                 >
-                  <div className="mb-1 flex items-end justify-between gap-2">
+                  <div
+                    className={cn(
+                      documentEditorIconRowClassName(host),
+                      "flex items-end justify-between gap-2",
+                    )}
+                  >
                     {documentCanonicalMutationsEnabled(
                       editorCanEdit,
                       isSuggesting,
@@ -12925,6 +12956,7 @@ function PageEditorSessionBody({
           agentSlotRef={host === "page" ? agentSlotRef : undefined}
           agentHeadSlotRef={host === "page" ? agentHeadSlotRef : undefined}
           headToolsRef={setPagePanelHeadTools}
+          belowFloatingControls={host === "preview"}
           onClose={() => handlePagePanelChange(null)}
         >
           {pagePanelBody}

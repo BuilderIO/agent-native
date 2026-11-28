@@ -159,6 +159,107 @@ function summarizeSelectedElement(element: ElementInfo) {
   };
 }
 
+interface PendingPersistedSelectionWrite {
+  key: string;
+  contextKey: string;
+  value: Record<string, unknown>;
+}
+
+function writePersistedSelectionSnapshot({
+  pending,
+  attempt = 0,
+  persistedSelectionStateRef,
+  persistedSelectionContextRef,
+  persistedSelectionWriteTimerRef,
+  selectionPublishFailedLabel,
+}: {
+  pending: PendingPersistedSelectionWrite;
+  attempt?: number;
+  persistedSelectionStateRef: RefObject<string | null>;
+  persistedSelectionContextRef: RefObject<string | null>;
+  persistedSelectionWriteTimerRef: RefObject<number | null>;
+  selectionPublishFailedLabel: string;
+}): Promise<void> {
+  persistedSelectionStateRef.current = pending.key;
+  persistedSelectionContextRef.current = pending.contextKey;
+  const keys = designSelectionStateKeys();
+  const requestSource = getBrowserTabId();
+  const keepalive =
+    new TextEncoder().encode(pending.key).length * keys.length <=
+    KEEPALIVE_ACTION_MAX_BYTES;
+  let failure: DesignSelectionPublishError | undefined;
+  return Promise.all(
+    keys.map((key) =>
+      setClientAppState(key, pending.value, {
+        keepalive,
+        requestSource,
+      }).then(
+        () => true,
+        (cause: unknown) => {
+          failure = new DesignSelectionPublishError(key, cause);
+          console.error(failure);
+          return false;
+        },
+      ),
+    ),
+  ).then((written) => {
+    if (
+      written.every(Boolean) ||
+      persistedSelectionStateRef.current !== pending.key
+    ) {
+      return;
+    }
+    persistedSelectionStateRef.current = null;
+    persistedSelectionContextRef.current = null;
+    if (attempt >= SELECTION_PUBLISH_RETRY_DELAYS_MS.length) {
+      reportWriteFailure(failure, { label: selectionPublishFailedLabel });
+      return;
+    }
+    if (persistedSelectionWriteTimerRef.current !== null) return;
+    const delay = SELECTION_PUBLISH_RETRY_DELAYS_MS[attempt];
+    persistedSelectionWriteTimerRef.current = window.setTimeout(() => {
+      persistedSelectionWriteTimerRef.current = null;
+      void writePersistedSelectionSnapshot({
+        pending,
+        attempt: attempt + 1,
+        persistedSelectionStateRef,
+        persistedSelectionContextRef,
+        persistedSelectionWriteTimerRef,
+        selectionPublishFailedLabel,
+      });
+    }, delay);
+  });
+}
+
+export function flushPendingAgentSelectionContext({
+  pendingPersistedSelectionWriteRef,
+  persistedSelectionStateRef,
+  persistedSelectionContextRef,
+  persistedSelectionWriteTimerRef,
+  selectionPublishFailedLabel,
+}: {
+  pendingPersistedSelectionWriteRef: RefObject<PendingPersistedSelectionWrite | null>;
+  persistedSelectionStateRef: RefObject<string | null>;
+  persistedSelectionContextRef: RefObject<string | null>;
+  persistedSelectionWriteTimerRef: RefObject<number | null>;
+  selectionPublishFailedLabel: string;
+}): Promise<void> | undefined {
+  if (persistedSelectionWriteTimerRef.current !== null) {
+    window.clearTimeout(persistedSelectionWriteTimerRef.current);
+    persistedSelectionWriteTimerRef.current = null;
+  }
+  const pending = pendingPersistedSelectionWriteRef.current;
+  pendingPersistedSelectionWriteRef.current = null;
+  if (!pending) return undefined;
+  return writePersistedSelectionSnapshot({
+    pending,
+    persistedSelectionStateRef,
+    persistedSelectionContextRef,
+    persistedSelectionWriteTimerRef,
+    selectionPublishFailedLabel,
+  });
+}
+
 export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
   activeFile: DesignFile | undefined;
@@ -328,58 +429,28 @@ export function runPublishAgentSelectionContext({
     ownerId: designSelectionOwnerIdRef.current,
   };
   const persistedKey = JSON.stringify(persistedSelection);
-  const { zoom: _zoom, ...persistedContext } = persistedSelection;
+  const { zoom: _zoom, ...persistedContextBase } = persistedSelection;
+  const persistedContext = {
+    ...persistedContextBase,
+    selectedElement: persistedContextBase.selectedElement
+      ? (() => {
+          const {
+            boundingRect: _boundingRect,
+            computedStyles: _computedStyles,
+            ...stableSelectedElement
+          } = persistedContextBase.selectedElement;
+          return stableSelectedElement;
+        })()
+      : null,
+  };
   const persistedContextKey = JSON.stringify(persistedContext);
-  const writePersistedSelection = (
-    pending: {
-      key: string;
-      contextKey: string;
-      value: Record<string, unknown>;
-    },
-    attempt = 0,
-  ) => {
-    persistedSelectionStateRef.current = pending.key;
-    persistedSelectionContextRef.current = pending.contextKey;
-    const keys = designSelectionStateKeys();
-    const requestSource = getBrowserTabId();
-    // Every key's write shares the browser's in-flight keepalive budget.
-    const keepalive =
-      new TextEncoder().encode(pending.key).length * keys.length <=
-      KEEPALIVE_ACTION_MAX_BYTES;
-    let failure: DesignSelectionPublishError | undefined;
-    void Promise.all(
-      keys.map((key) =>
-        setClientAppState(key, pending.value, {
-          keepalive,
-          requestSource,
-        }).then(
-          () => true,
-          (cause: unknown) => {
-            failure = new DesignSelectionPublishError(key, cause);
-            console.error(failure);
-            return false;
-          },
-        ),
-      ),
-    ).then((written) => {
-      if (
-        written.every(Boolean) ||
-        persistedSelectionStateRef.current !== pending.key
-      ) {
-        return;
-      }
-      persistedSelectionStateRef.current = null;
-      persistedSelectionContextRef.current = null;
-      if (attempt >= SELECTION_PUBLISH_RETRY_DELAYS_MS.length) {
-        reportWriteFailure(failure, { label: selectionPublishFailedLabel });
-        return;
-      }
-      if (persistedSelectionWriteTimerRef.current !== null) return;
-      const delay = SELECTION_PUBLISH_RETRY_DELAYS_MS[attempt];
-      persistedSelectionWriteTimerRef.current = window.setTimeout(() => {
-        persistedSelectionWriteTimerRef.current = null;
-        writePersistedSelection(pending, attempt + 1);
-      }, delay);
+  const writePersistedSelection = (pending: PendingPersistedSelectionWrite) => {
+    void writePersistedSelectionSnapshot({
+      pending,
+      persistedSelectionStateRef,
+      persistedSelectionContextRef,
+      persistedSelectionWriteTimerRef,
+      selectionPublishFailedLabel,
     });
   };
   if (persistedSelectionStateRef.current === persistedKey) {

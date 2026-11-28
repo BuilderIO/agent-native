@@ -100,6 +100,7 @@ export default defineAction({
         "Optional design.md guidance to upload to Builder DSI alongside Figma/code sources",
       ),
   }),
+  mcpTool: "search",
   run: async ({
     projectName,
     description,

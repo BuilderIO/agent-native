@@ -1701,6 +1701,7 @@ export default defineAction({
       )
       .describe("Include speaker notes"),
   }),
+  mcpTool: "search",
   run: trackPptxExportFailures(async (args, ctx, facts) => {
     const { deckId, includeNotes } = args;
     const downloadContext = slidesPptxDownloadContext(ctx);

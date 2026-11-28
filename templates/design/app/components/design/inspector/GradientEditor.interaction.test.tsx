@@ -400,4 +400,71 @@ describe("GradientEditor onCommit", () => {
     expect(css).toContain("25%");
     expect(onCommit).toHaveBeenCalledTimes(2);
   });
+
+  it("commits once and ends stop drag on lostpointercapture, falls back to window on capture error, and ignores right-click", () => {
+    const onChange = vi.fn();
+    const onCommit = vi.fn();
+    act(() => {
+      root.render(
+        <ControlledGradientEditor onChange={onChange} onCommit={onCommit} />,
+      );
+    });
+
+    const handle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label^="#ff0000"]',
+    );
+    expect(handle).not.toBeNull();
+    if (!handle) throw new Error("Missing stop handle");
+
+    act(() => {
+      handle.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 40,
+          button: 2,
+          pointerId: 1,
+        }),
+      );
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onCommit).not.toHaveBeenCalled();
+
+    act(() => {
+      handle.dispatchEvent(pointerEvent("pointerdown", { clientX: 0 }));
+      handle.dispatchEvent(pointerEvent("pointermove", { clientX: 60 }));
+      handle.dispatchEvent(
+        new PointerEvent("lostpointercapture", {
+          bubbles: true,
+          pointerId: 1,
+        }),
+      );
+    });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    const changesAfterLoss = onChange.mock.calls.length;
+
+    act(() => {
+      handle.dispatchEvent(pointerEvent("pointermove", { clientX: 160 }));
+      handle.dispatchEvent(pointerEvent("pointerup", { clientX: 160 }));
+    });
+    expect(onChange).toHaveBeenCalledTimes(changesAfterLoss);
+    expect(onCommit).toHaveBeenCalledTimes(1);
+
+    handle.setPointerCapture = vi.fn(() => {
+      throw new DOMException("No active pointer", "NotFoundError");
+    });
+    act(() => {
+      handle.dispatchEvent(
+        pointerEvent("pointerdown", { clientX: 60, pointerId: 2 }),
+      );
+      window.dispatchEvent(
+        pointerEvent("pointermove", { clientX: 120, pointerId: 2 }),
+      );
+      window.dispatchEvent(
+        pointerEvent("pointerup", { clientX: 120, pointerId: 2 }),
+      );
+    });
+    expect(onChange).toHaveBeenCalledTimes(changesAfterLoss + 1);
+    expect(onCommit).toHaveBeenCalledTimes(2);
+  });
 });

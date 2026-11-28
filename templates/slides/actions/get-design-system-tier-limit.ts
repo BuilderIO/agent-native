@@ -8,5 +8,6 @@ export default defineAction({
   schema: z.object({}),
   readOnly: true,
   http: { method: "GET" },
+  mcpTool: false,
   run: async () => fetchBuilderDesignSystemTierLimit(),
 });

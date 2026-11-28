@@ -66,7 +66,7 @@ export function hasForwardedInlineLocaleUpdate(
   }
 
   return new RegExp(
-    `^\\s*(?:\\.\\.\\.\\s*|export\\s+default\\s+)messagesByLocale\\s*\\[\\s*["']${locale}["']\\s*\\]`,
+    `^\\s*(?:\\.\\.\\.\\s*|export\\s+default\\s+|const\\s+[A-Za-z_$][\\w$]*\\s*=\\s*)messagesByLocale\\s*\\[\\s*["']${locale}["']\\s*\\]`,
     "m",
   ).test(wrapperText);
 }

@@ -16,14 +16,14 @@ export interface ActionTypeRegistry {
 }
 
 export type ActionNameOf<TRegistry> =
-  TRegistry extends ActionsRegistry<never, infer TActions>
+  TRegistry extends ActionsRegistry<infer _TCtx, infer TActions>
     ? Extract<keyof TActions, string>
     : keyof ActionTypeRegistry["actions"] extends never
       ? string
       : Extract<keyof ActionTypeRegistry["actions"], string>;
 
 export type ActionInputOf<TRegistry, TName extends string> =
-  TRegistry extends ActionsRegistry<never, infer TActions>
+  TRegistry extends ActionsRegistry<infer _TCtx, infer TActions>
     ? TName extends keyof TActions
       ? InferActionInputFromDef<TActions[TName]>
       : Record<string, unknown>
@@ -32,7 +32,7 @@ export type ActionInputOf<TRegistry, TName extends string> =
       : Record<string, unknown>;
 
 export type ActionOutputOf<TRegistry, TName extends string> =
-  TRegistry extends ActionsRegistry<never, infer TActions>
+  TRegistry extends ActionsRegistry<infer _TCtx, infer TActions>
     ? TName extends keyof TActions
       ? InferActionReturn<TActions[TName]>
       : unknown

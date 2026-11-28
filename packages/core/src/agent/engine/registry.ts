@@ -749,6 +749,8 @@ async function resolveProviderBaseUrl(
   deploymentEndpointAllowed: boolean,
   credential?: CredentialProvenance,
 ): Promise<ResolvedProviderBaseUrl | undefined> {
+  const allowPrivateOpenAi =
+    envVar === OPENAI_BASE_URL_ENV_VAR && isTrustedSelfHostedRuntime();
   const isOllama = envVar === OLLAMA_BASE_URL_ENV_VAR;
   // raw-sql-ok: envVar names a provider endpoint secret, never SQL.
   const resolved = await resolveSecretDetailed(
@@ -788,12 +790,13 @@ async function resolveProviderBaseUrl(
   }
   const allowLocalOllama = isOllama && isTrustedSelfHostedRuntime();
   const baseUrl = await validateProviderBaseUrl(raw, {
-    allowPrivate: isDeployValue,
+    allowPrivate: isDeployValue || allowPrivateOpenAi,
     allowLocalOllama,
     isOllama,
   });
   const allowedPrivateOrigin =
     (isDeployValue ||
+      allowPrivateOpenAi ||
       (allowLocalOllama && isLocalNetworkOllamaEndpoint(baseUrl))) &&
     (await isBlockedExtensionUrlWithDns(baseUrl))
       ? new URL(baseUrl).origin
