@@ -1028,6 +1028,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         fromRememberedSession = false,
       ) => {
         if (!active || request !== statusRequest) return;
+        if (status === "idle") setDesktopIdentityEnabled(false);
         if (!fromRememberedSession) rememberDesktopIdentityStatus(status);
         setDesktopIdentityStatus(status);
         if (status === "signed-in") {
@@ -1194,6 +1195,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               return;
             }
           } else {
+            if (status === "idle") setDesktopIdentityEnabled(false);
             updateDesktopIdentitySessionReady(true);
             setDesktopIdentityStatus(status);
             return;
