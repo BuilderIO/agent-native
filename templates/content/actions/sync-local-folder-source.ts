@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 
-import { defineAction, type ActionRunContext } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -585,8 +589,9 @@ export default defineAction({
     ) => {
       for (const existing of snapshot.documentById.values()) {
         if (existing.spaceId !== targetSpaceId) {
-          throw new Error(
+          fail(
             `Document "${existing.id}" belongs to another Content space and cannot be imported here`,
+            { errorCode: "document_in_another_space", statusCode: 409 },
           );
         }
         await assertAccess("document", existing.id, "editor");
