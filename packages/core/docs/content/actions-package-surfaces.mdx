@@ -135,15 +135,14 @@ Export registered actions as tool definitions (plus tool-call executors for Anth
             code: `import { generateText } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { toAiSdkTools } from "@agent-native/actions";
-import { actions } from "@/lib/actions";
-
+import { actions } from "@/lib/actions";\n
 const result = await generateText({
-model: openai("gpt-5"),
-prompt: "List open todos and create one for shipping the docs.",
-tools: toAiSdkTools(actions, {
-context: { caller: "agent", user: currentUser },
-only: ["list-todos", "create-todo"],
-}),
+  model: openai("gpt-5"),
+  prompt: "List open todos and create one for shipping the docs.",
+  tools: toAiSdkTools(actions, {
+    context: { caller: "agent", user: currentUser },
+    only: ["list-todos", "create-todo"],
+  }),
 });`,
           },
         },
@@ -160,19 +159,16 @@ only: ["list-todos", "create-todo"],
             language: "ts",
             code: `import Anthropic from "@anthropic-ai/sdk";
 import { toAnthropicTools } from "@agent-native/actions";
-import { actions } from "@/lib/actions";
-
+import { actions } from "@/lib/actions";\n
 const { tools, executeToolUse } = toAnthropicTools(actions, {
-context: { caller: "agent", user: currentUser },
-});
-
+  context: { caller: "agent", user: currentUser },
+});\n
 const response = await anthropic.messages.create({
-model: "claude-sonnet-4-6",
-max_tokens: 1024,
-tools,
-messages,
-});
-
+  model: "claude-sonnet-4-6",
+  max_tokens: 1024,
+  tools,
+  messages,
+});\n
 // Pass each tool_use block to executeToolUse(block) to get a tool_result block`,
           },
         },
@@ -189,18 +185,16 @@ messages,
             language: "ts",
             code: `import OpenAI from "openai";
 import { toOpenAiTools } from "@agent-native/actions";
-import { actions } from "@/lib/actions";
-
+import { actions } from "@/lib/actions";\n
 const { tools, executeToolCall } = toOpenAiTools(actions, {
-context: { caller: "agent", user: currentUser },
-});
-
+  context: { caller: "agent", user: currentUser },
+});\n
 // Pass tools to chat.completions.create({ tools }) and handle tool_calls with executeToolCall(call)`,
-},
-},
-],
-},
-]}
+          },
+        },
+      ],
+    },
+  ]}
 />
 
 ## WebMCP (`@agent-native/actions/webmcp`) {#webmcp}

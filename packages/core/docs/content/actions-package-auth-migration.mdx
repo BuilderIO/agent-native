@@ -26,8 +26,7 @@ Export `createContext` and a typed action builder via `createActionBuilder<AppCo
             code: `// actions/context.ts
 import { auth } from "@clerk/nextjs/server";
 import { createActionBuilder, type ActionContextInput } from "@agent-native/actions";
-import { verifyApiKey } from "@/lib/api-keys";
-
+import { verifyApiKey } from "@/lib/api-keys";\n
 export async function createContext({ caller, headers }: ActionContextInput) {
   if (caller === "cli") {
     const devUserId =
@@ -41,8 +40,7 @@ export async function createContext({ caller, headers }: ActionContextInput) {
   }
   const session = await auth();
   return { caller, userId: session.userId, orgId: session.orgId ?? null };
-}
-
+}\n
 export type AppContext = Awaited<ReturnType<typeof createContext>>;
 export const defineAppAction = createActionBuilder<AppContext>();`,
           },
@@ -60,8 +58,7 @@ export const defineAppAction = createActionBuilder<AppContext>();`,
             language: "ts",
             code: `// actions/context.ts
 import { createActionBuilder, type ActionContextInput } from "@agent-native/actions";
-import { auth } from "@/lib/auth";
-
+import { auth } from "@/lib/auth";\n
 export async function createContext({ caller, headers }: ActionContextInput) {
   const session = await auth.api.getSession({ headers });
   return {
@@ -69,8 +66,7 @@ export async function createContext({ caller, headers }: ActionContextInput) {
     user: session?.user ?? null,
     orgId: session?.session.activeOrganizationId ?? null,
   };
-}
-
+}\n
 export type AppContext = Awaited<ReturnType<typeof createContext>>;
 export const defineAppAction = createActionBuilder<AppContext>();`,
           },
@@ -88,14 +84,12 @@ export const defineAppAction = createActionBuilder<AppContext>();`,
             language: "ts",
             code: `// actions/context.ts
 import { createActionBuilder, type ActionContextInput } from "@agent-native/actions";
-import { createServerClient } from "@/lib/supabase-server";
-
+import { createServerClient } from "@/lib/supabase-server";\n
 export async function createContext({ caller, request }: ActionContextInput) {
   const supabase = await createServerClient(request);
   const { data } = await supabase.auth.getUser();
   return { caller, user: data.user ?? null, supabase };
-}
-
+}\n
 export type AppContext = Awaited<ReturnType<typeof createContext>>;
 export const defineAppAction = createActionBuilder<AppContext>();`,
           },
