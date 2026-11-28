@@ -180,6 +180,9 @@ export const OrderAndBind: StoryObj = {
       /^linear-gradient\(var\(--brand-10\)/,
     );
     await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(page.queryByRole("combobox", { name: "Color token" })).toBeNull(),
+    );
     const actions = canvas.getByRole("button", {
       name: "Paint actions Solid 1",
     });
