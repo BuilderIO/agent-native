@@ -328,16 +328,24 @@ function listingFor(
         isRejection: isAuthStatus,
       };
     }
-    case "openai":
-      return openAiBaseUrl
-        ? openAiStyleListing(`${openAiBaseUrl}/models`, key, {
-            filterNonChat: false,
-            userEndpoint: { allowedPrivateOrigins: [] },
-            gateway: true,
-          })
-        : openAiStyleListing(`${OPENAI_DEFAULT_BASE_URL}/models`, key, {
-            filterNonChat: true,
-          });
+    case "openai": {
+      const firstUrl = openAiBaseUrl
+        ? `${openAiBaseUrl.replace(/\/$/, "")}/models`
+        : `${OPENAI_DEFAULT_BASE_URL}/models`;
+      return openAiStyleListing(firstUrl, key, {
+        filterNonChat: !openAiBaseUrl,
+        ...(openAiBaseUrl
+          ? {
+              userEndpoint: {
+                allowedPrivateOrigins: isTrustedSelfHostedRuntime()
+                  ? [new URL(openAiBaseUrl).origin]
+                  : [],
+              },
+              gateway: true,
+            }
+          : {}),
+      });
+    }
     case "groq":
       return openAiStyleListing("https://api.groq.com/openai/v1/models", key, {
         filterNonChat: true,
@@ -412,6 +420,8 @@ function listingFor(
           (status === 400 && JSON.stringify(body ?? "").includes("API_KEY")),
       };
     }
+    default:
+      throw new Error(`Unsupported provider: ${provider}`);
   }
 }
 
@@ -599,7 +609,9 @@ async function validateEndpoint(
     });
   }
   if (!requested) return null;
-  const validated = await validateProviderBaseUrl(requested);
+  const validated = await validateProviderBaseUrl(requested, {
+    allowPrivate: isTrustedSelfHostedRuntime(),
+  });
   return isCustomOpenAiBaseUrl(validated) ? validated : null;
 }
 
