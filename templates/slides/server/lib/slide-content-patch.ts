@@ -119,7 +119,7 @@ export const SlideContentEditSchema = z.union([
     op: z.literal("regex-replace"),
     pattern: z.string(),
     replace: z.string(),
-    flags: z.string().optional(),
+    flags: z.string().default(""),
     all: z.boolean().optional(),
     expectedMatches: z.number().int().nonnegative().optional(),
     required: z.boolean().optional(),

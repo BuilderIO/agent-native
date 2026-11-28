@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { normalizeOptionalToolPlaceholders } from "../../../packages/core/src/agent/optional-placeholders.js";
 import { getPreset } from "../app/lib/design-systems.js";
 import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
@@ -1384,6 +1385,58 @@ describe("isAgentPatchCaller", () => {
 });
 
 describe("patch-deck agent schema", () => {
+  it("normalizes padded regex edits without treating empty flags as a clear", () => {
+    const edit = {
+      op: "regex-replace",
+      pattern: "Old",
+      replace: "New",
+      flags: "",
+    };
+    const result = normalizeOptionalToolPlaceholders(
+      patchDeckAction.tool.parameters,
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            baseContentHash: null,
+            edits: [edit],
+          },
+        ],
+      },
+      patchDeckAction,
+    );
+
+    expect(result).toEqual({
+      input: {
+        deckId: "deck-1",
+        operations: [{ op: "patch-slide", slideId: "slide-1", edits: [edit] }],
+      },
+      changed: true,
+    });
+  });
+
+  it("rejects mixed padding and a real deck-field clear", () => {
+    const input = {
+      deckId: "deck-1",
+      rewriteSource: null,
+      operations: [
+        { op: "patch-deck-fields", fields: { title: "", starred: false } },
+      ],
+    };
+    const result = normalizeOptionalToolPlaceholders(
+      patchDeckAction.tool.parameters,
+      input,
+      patchDeckAction,
+    );
+
+    expect(result.changed).toBe(false);
+    expect(result.input).toEqual(input);
+    expect(result.error?.errorCode).toBe("ambiguous_tool_placeholders");
+    expect(result.error?.message).toContain("No action was run");
+  });
+
   it("advertises bounded deck, slide, and structural operations", () => {
     const parameters = patchDeckAction.tool.parameters as any;
     const operations = parameters.properties.operations.items.anyOf;
