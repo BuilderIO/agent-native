@@ -36,7 +36,6 @@ const SERVED = [
   "hydrate-figma-paste-images",
   "import-code",
   "import-design-project",
-  "import-design-source",
   "import-design-tokens",
   "import-document",
   "import-figma-clipboard",
@@ -126,6 +125,10 @@ const ASKS_FIRST = [
   ],
   ["update-visual-edit-collaboration", { designId: "d-1", enabled: true }],
   ["delete-design", { id: "d-1" }],
+  [
+    "import-design-source",
+    { sourceType: "fig-frame", clientImportBatchId: "batch-1", abort: true },
+  ],
 ] as const;
 
 const RUNS_WITHOUT_ASKING = [
@@ -142,6 +145,10 @@ const RUNS_WITHOUT_ASKING = [
   ],
   ["update-visual-edit-collaboration", { designId: "d-1", enabled: false }],
   ["delete-design", { id: "d-1", expectedCreatedShell: CREATED_SHELL }],
+  [
+    "import-design-source",
+    { sourceType: "html-string", content: "<!doctype html><p>Hi</p>" },
+  ],
 ] as const;
 
 const IN_APP_ONLY = [

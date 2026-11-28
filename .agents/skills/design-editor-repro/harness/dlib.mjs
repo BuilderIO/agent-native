@@ -190,11 +190,18 @@ export async function uiAction(ctx, base, name, params = {}) {
     throw new Error(
       `ui-capability failed: ${minted.status()} ${(await minted.text()).slice(0, 400)}`,
     );
+  const session = cookieHeader(base, (await ctx.storageState()).cookies);
+  const capability = minted
+    .headersArray()
+    .filter((header) => header.name.toLowerCase() === "set-cookie")
+    .map((header) => header.value.split(";")[0]);
+  const cookie = session ? [session, ...capability].join("; ") : null;
   const res = await send(name, () =>
     ctx.post(`_agent-native/actions/${name}`, {
       data: params,
       headers: {
         ...headers,
+        ...(cookie ? { cookie } : {}),
         "Content-Type": "application/json",
         "X-Agent-Native-Frontend": "1",
       },
