@@ -124,6 +124,83 @@ function placementOf(browser: Y.Doc, words: string, occurrence = 0) {
   );
 }
 
+const entry = <T>(values: readonly T[], index: number): T | undefined =>
+  values[index];
+
+function twoBrowsers(stored: string) {
+  const { server, browsers } = session(stored, 2);
+  const browser = entry(browsers, 0);
+  const other = entry(browsers, 1);
+  if (!browser || !other) throw new Error("No browser copies");
+  return { server, browser, other };
+}
+
+function emptyTextblockAt(doc: PMNode, occurrence: number) {
+  const found: number[] = [];
+  doc.descendants((node, position) => {
+    if (!node.isTextblock) return true;
+    if (node.content.size === 0) found.push(position + 1);
+    return false;
+  });
+  const at = entry(found, occurrence);
+  if (at === undefined) throw new Error(`No empty textblock #${occurrence}`);
+  return at;
+}
+
+function placementOfEmpty(browser: Y.Doc, occurrence: number) {
+  const fragment = browser.getXmlFragment("default");
+  const { doc, mapping } = initProseMirrorDoc(fragment, schema);
+  const at = emptyTextblockAt(doc, occurrence);
+  return suggestionPlacementForRange(
+    { doc: browser, type: fragment, mapping },
+    { from: at, to: at },
+  );
+}
+
+const table = (status: [string, string]) =>
+  `Intro\n\n| Name | Status |\n| --- | --- |\n| a | ${status[0]} |\n| b | ${status[1]} |`;
+
+const canonical = (markdown: string) => markdownOf(session(markdown).server);
+
+function withColumnWidths(current: PMNode) {
+  const transform = new Transform(current);
+  current.descendants((node, position) => {
+    if (node.type.name === "tableCell" || node.type.name === "tableHeader")
+      transform.setNodeMarkup(position, undefined, {
+        ...node.attrs,
+        colwidth: [180],
+      });
+  });
+  return transform.doc;
+}
+
+const withTrailingParagraph = (current: PMNode) =>
+  current.replace(
+    current.content.size,
+    current.content.size,
+    new Slice(Fragment.from(schema.node("paragraph")), 0, 0),
+  );
+
+const liveCopy = (doc: Y.Doc) =>
+  schema.nodeFromJSON(
+    yXmlFragmentToProsemirrorJSON(doc.getXmlFragment("default")),
+  );
+
+function blockTexts(doc: Y.Doc) {
+  const texts: string[] = [];
+  liveCopy(doc).forEach((block) => texts.push(block.textContent));
+  return texts;
+}
+
+function columnWidthsOf(doc: Y.Doc) {
+  const widths: unknown[] = [];
+  liveCopy(doc).descendants((node) => {
+    if (node.type.name === "tableCell" || node.type.name === "tableHeader")
+      widths.push(node.attrs.colwidth);
+  });
+  return widths;
+}
+
 const refused = "The live copy shows these words differently";
 
 function accept(
@@ -552,6 +629,81 @@ describe("writeAcceptedSuggestion at the reviewer's placement", () => {
     expect(markdownOf(server)).toBe("The sleepy dog.");
     expect(text.toString()).toBe("lazy");
   });
+
+  it("fills the empty table cell the reviewer saw while the Page is typed in", () => {
+    const stored = table(["", ""]);
+    const { server, browser } = pair(stored);
+    const placement = placementOfEmpty(browser, 1);
+    expect(placement).not.toBeNull();
+    Y.applyUpdate(server, edit(browser, typeAt(" typed", endOf("Intro"))));
+    accept(server, stored, table(["", "done"]), placement);
+    exchange(server, browser);
+    expect(markdownOf(server)).toBe(
+      canonical(table(["", "done"]).replace("Intro", "Intro typed")),
+    );
+    expect(markdownOf(browser)).toBe(markdownOf(server));
+  });
+
+  it("fills an empty paragraph the reviewer saw, not its twin", () => {
+    const stored = "Intro\n\n<empty-block/>\n\nMiddle\n\n<empty-block/>";
+    const { server, browser } = pair(stored);
+    const placement = placementOfEmpty(browser, 1);
+    Y.applyUpdate(server, edit(browser, typeAt(" typed", endOf("Intro"))));
+    const end = emptyTextblockAt(page(stored), 1);
+    const next = page(stored).replace(
+      end,
+      end,
+      new Slice(Fragment.from(schema.text("End")), 0, 0),
+    );
+    expect(
+      writeAcceptedSuggestion(server, schema, {
+        before: page(stored),
+        after: next,
+        placement,
+      }),
+    ).toBe(true);
+    expect(blockTexts(server)).toEqual(["Intro typed", "", "Middle", "End"]);
+  });
+
+  it("ignores an empty paragraph's placement for words added beside others", () => {
+    const stored = "Intro\n\n<empty-block/>\n\nCat";
+    const { server, browser } = pair(stored);
+    const placement = placementOfEmpty(browser, 0);
+    Y.applyUpdate(server, edit(browser, typeAt(" typed", endOf("Intro"))));
+    accept(server, stored, "Intro\n\n<empty-block/>\n\nBlack Cat", placement);
+    expect(blockTexts(server)).toEqual(["Intro typed", "", "Black Cat"]);
+  });
+
+  it("fills an empty cell in a table whose columns were resized", () => {
+    const stored = table(["", ""]);
+    const { server, browser } = pair(stored);
+    Y.applyUpdate(server, edit(browser, withColumnWidths));
+    const placement = placementOfEmpty(browser, 1);
+    accept(server, stored, table(["", "done"]), placement);
+    expect(markdownOf(server)).toBe(canonical(table(["", "done"])));
+    expect(columnWidthsOf(server)).toEqual(Array(6).fill([180]));
+  });
+
+  it("refuses an empty table cell someone typed into after the reviewer saw it", () => {
+    const stored = table(["", ""]);
+    const { server, browser, other } = twoBrowsers(stored);
+    const placement = placementOfEmpty(browser, 1);
+    Y.applyUpdate(
+      server,
+      edit(other, (current) => {
+        const at = emptyTextblockAt(current, 1);
+        return current.replace(
+          at,
+          at,
+          new Slice(Fragment.from(schema.text("x")), 0, 0),
+        );
+      }),
+    );
+    expect(() =>
+      accept(server, stored, table(["", "done"]), placement),
+    ).toThrow(refused);
+    expect(markdownOf(server)).toBe(canonical(table(["", "x"])));
+  });
 });
 
 describe("writeAcceptedSuggestion without a placement", () => {
@@ -697,6 +849,85 @@ describe("writeAcceptedSuggestion without a placement", () => {
       refused,
     );
     expect(markdownOf(server)).toBe("Alpha. Typed.\nBeta.\nAlpha.\nBeta.");
+  });
+});
+
+describe("writeAcceptedSuggestion without a placement, in a table whose columns were resized", () => {
+  it("changes a cell whose text repeats in the table", () => {
+    const stored = table(["Yes", "Yes"]);
+    const { server, browser } = pair(stored);
+    Y.applyUpdate(server, edit(browser, withColumnWidths));
+    accept(server, stored, table(["Yes", "No"]));
+    expect(markdownOf(server)).toBe(canonical(table(["Yes", "No"])));
+    expect(columnWidthsOf(server)).toEqual(Array(6).fill([180]));
+  });
+
+  it("fills one of several empty cells", () => {
+    const stored = table(["", ""]);
+    const { server, browser } = pair(stored);
+    Y.applyUpdate(server, edit(browser, withColumnWidths));
+    accept(server, stored, table(["done", ""]));
+    expect(markdownOf(server)).toBe(canonical(table(["done", ""])));
+    expect(columnWidthsOf(server)).toEqual(Array(6).fill([180]));
+  });
+
+  it("refuses a cell whose text repeats once the live copy also moved on", () => {
+    const stored = table(["Yes", "Yes"]);
+    const { server, browser } = pair(stored);
+    Y.applyUpdate(server, edit(browser, withColumnWidths));
+    Y.applyUpdate(server, edit(browser, typeAt(" typed", endOf("Intro"))));
+    expect(() => accept(server, stored, table(["Yes", "No"]))).toThrow(refused);
+  });
+
+  it("keeps the colour of the paragraph it fills", () => {
+    const stored = table(["", ""]);
+    const { server, browser } = pair(stored);
+    Y.applyUpdate(server, edit(browser, withColumnWidths));
+    Y.applyUpdate(
+      server,
+      edit(browser, (current) => {
+        const at = emptyTextblockAt(current, 1) - 1;
+        return new Transform(current).setNodeMarkup(at, undefined, {
+          ...current.nodeAt(at)?.attrs,
+          color: "red_bg",
+        }).doc;
+      }),
+    );
+    accept(server, stored, table(["", "done"]));
+    const filled: unknown[] = [];
+    liveCopy(server).descendants((node) => {
+      if (node.isTextblock && node.textContent === "done")
+        filled.push(node.attrs.color);
+    });
+    expect(filled).toEqual(["red_bg"]);
+  });
+});
+
+describe("writeAcceptedSuggestion without a placement, on a Page that ends in a table", () => {
+  it("fills one of several empty cells beside the line the editor adds after it", () => {
+    const stored = table(["", ""]);
+    const { server, browser } = pair(stored);
+    Y.applyUpdate(server, edit(browser, withTrailingParagraph));
+    accept(server, stored, table(["", "done"]));
+    expect(markdownOf(server)).toBe(canonical(table(["", "done"])));
+    expect(liveCopy(server).childCount).toBe(3);
+  });
+
+  it("refuses once the line after the table holds words", () => {
+    const stored = table(["", ""]);
+    const { server, browser } = pair(stored);
+    Y.applyUpdate(server, edit(browser, withTrailingParagraph));
+    Y.applyUpdate(
+      server,
+      edit(browser, (current) =>
+        current.replace(
+          current.content.size - 1,
+          current.content.size - 1,
+          new Slice(Fragment.from(schema.text("typed")), 0, 0),
+        ),
+      ),
+    );
+    expect(() => accept(server, stored, table(["", "done"]))).toThrow(refused);
   });
 });
 

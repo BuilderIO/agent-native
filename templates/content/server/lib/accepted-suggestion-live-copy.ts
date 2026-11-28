@@ -1,5 +1,6 @@
 import {
   Fragment,
+  Mark,
   Slice,
   type Node as ProseMirrorNode,
   type Schema,
@@ -15,7 +16,7 @@ import {
   BLOCK_IDENTITY_ATTR,
   blockIdentityIdOf,
 } from "../../shared/block-identity-ids.js";
-import { docToNfm, type PMNode } from "../../shared/nfm.js";
+import { docToNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
 import {
   parseSuggestionPlacement,
   WORD_CHARACTER,
@@ -260,10 +261,9 @@ function liveElementAt(
 function liveTextblock(
   fragment: Y.XmlFragment,
   live: ProseMirrorNode,
-  text: Y.XmlText,
+  element: Y.XmlElement,
+  text: Y.XmlText | null,
 ) {
-  const element = text.parent;
-  if (!(element instanceof Y.XmlElement)) return null;
   const path: number[] = [];
   for (let type: Y.XmlFragment = element; type !== fragment; ) {
     const parent: unknown = type.parent;
@@ -281,7 +281,7 @@ function liveTextblock(
     node = node.child(index);
   }
   if (!node.isTextblock || node.type.name !== element.nodeName) return null;
-  let offset: number | null = null;
+  let offset: number | null = text ? null : 0;
   let size = 0;
   for (const child of element.toArray()) {
     if (child === text) offset = size;
@@ -313,16 +313,13 @@ function placedRange(
     // coercion-ok: a placement this live copy can't resolve isn't used.
     return null;
   }
-  if (
-    !from ||
-    !to ||
-    from.type !== to.type ||
-    !(from.type instanceof Y.XmlText) ||
-    from.index > to.index
-  )
+  if (!from || !to || from.type !== to.type || from.index > to.index)
     return null;
-  const text = from.type;
-  const textblock = liveTextblock(fragment, live, text);
+  const text = from.type instanceof Y.XmlText ? from.type : null;
+  const element = text ? text.parent : from.type;
+  if (!(element instanceof Y.XmlElement) || (!text && element.length > 0))
+    return null;
+  const textblock = liveTextblock(fragment, live, element, text);
   if (!textblock) return null;
   return {
     text,
@@ -408,6 +405,7 @@ function writeAtPlacement(
     )
       continue;
     const offset = from - $from.start();
+    if (!range.text && $from.parent.content.size > 0) continue;
     if (!$from.parent.content.cut(offset, offset + length).eq(seen)) continue;
     const replacement = $next.parent.content.cut(
       from - $next.start(),
@@ -448,14 +446,16 @@ function writeAtPlacement(
       return false;
   }
   const replacement = chosen.replacement;
+  const { text } = range;
   doc.transact(() => {
-    const was = plainText(range.text).slice(range.from, range.to);
+    const was = text && plainText(text).slice(range.from, range.to);
     if (
+      text &&
       textOnly(replacement) &&
       was === seen.textBetween(0, seen.size, "", OBJECT_REPLACEMENT)
     )
       spliceText(
-        range.text,
+        text,
         range.from,
         was,
         replacement.textBetween(0, replacement.size),
@@ -546,6 +546,39 @@ function storedRunIsUnique(
   return true;
 }
 
+function sameBlocksTextAndMarks(
+  a: ProseMirrorNode,
+  b: ProseMirrorNode,
+): boolean {
+  if (a.type !== b.type || a.childCount !== b.childCount) return false;
+  if (a.isText) return a.text === b.text && Mark.sameSet(a.marks, b.marks);
+  for (let index = 0; index < a.childCount; index += 1)
+    if (!sameBlocksTextAndMarks(a.child(index), b.child(index))) return false;
+  return true;
+}
+
+function storedFormMatches(
+  seen: ProseMirrorNode,
+  before: ProseMirrorNode,
+): boolean {
+  const extra = seen.childCount - before.childCount;
+  const filler = extra === 1 ? seen.lastChild : null;
+  if (extra !== 0 && !(filler?.isTextblock && filler.content.size === 0))
+    return false;
+  const shared = filler
+    ? seen.copy(seen.content.cut(0, seen.content.size - filler.nodeSize))
+    : seen;
+  if (!sameBlocksTextAndMarks(shared, before)) return false;
+  try {
+    return seen.type.schema
+      .nodeFromJSON(nfmToDoc(docToNfm(seen.toJSON() as PMNode)))
+      .eq(before);
+  } catch {
+    // coercion-ok: a live copy the stored form can't hold reads as changed.
+    return false;
+  }
+}
+
 /**
  * Without the reviewer's place, the change goes in only where the live copy
  * still holds the paragraph, or the blocks, exactly as stored.
@@ -574,19 +607,26 @@ function writeWhereUnchanged(
     const stored = $start.parent;
     const next = $next.parent;
     // A paragraph the stored Page repeats can't be told from its twin.
-    const position = unchanged
-      ? $start.before()
-      : uniqueTextblock(before, stored) === null
-        ? null
-        : uniqueTextblock(seen, stored);
+    const position =
+      unchanged || storedFormMatches(seen, before)
+        ? $start.before()
+        : uniqueTextblock(before, stored) === null
+          ? null
+          : uniqueTextblock(seen, stored);
     if (position === null) return false;
     const element = liveElementAt(fragment, live, position);
-    if (!element) return false;
+    const held = live.nodeAt(position);
+    if (!element || !held || !seen.nodeAt(position)?.content.eq(stored.content))
+      return false;
     const target = live.replace(
       position,
       position + stored.nodeSize,
       new Slice(
-        Fragment.from(withBlockIdOf(live.nodeAt(position), next)),
+        Fragment.from(
+          stored.sameMarkup(next)
+            ? held.copy(next.content)
+            : withBlockIdOf(held, next),
+        ),
         0,
         0,
       ),
