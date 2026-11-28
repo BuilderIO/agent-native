@@ -887,6 +887,16 @@ const messages = {
     contacts: {
       noContactSelected: "Kein Kontakt ausgewählt",
     },
+    summary: {
+      summarize: "Zusammenfassen",
+      hide: "Zusammenfassung ausblenden",
+      label: "Zusammenfassung",
+      summarizing: "Wird zusammengefasst…",
+      failed: "Diese Unterhaltung konnte nicht zusammengefasst werden.",
+      refreshFailed: "Diese Zusammenfassung konnte nicht aktualisiert werden.",
+      needsModel:
+        "Zusammenfassungen brauchen ein KI-Modell. Nutze Builder.io kostenlos oder füge einen API-Schlüssel hinzu.",
+    },
     contactPanel: {
       addToPanel: "Zu diesem Bereich hinzufügen",
       builtIn: "Integriert",

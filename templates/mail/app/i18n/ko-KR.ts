@@ -846,6 +846,16 @@ const messages = {
     contacts: {
       noContactSelected: "선택한 연락처가 없습니다",
     },
+    summary: {
+      summarize: "요약",
+      hide: "요약 숨기기",
+      label: "요약",
+      summarizing: "요약하는 중…",
+      failed: "이 대화를 요약하지 못했습니다.",
+      refreshFailed: "이 요약을 업데이트하지 못했습니다.",
+      needsModel:
+        "요약하려면 AI 모델이 필요합니다. Builder.io를 무료로 사용하거나 API 키를 추가하세요.",
+    },
     contactPanel: {
       addToPanel: "이 패널에 추가",
       builtIn: "기본 제공",

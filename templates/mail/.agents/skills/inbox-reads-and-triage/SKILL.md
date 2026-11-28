@@ -79,6 +79,18 @@ Use `view-screen` when the active thread, selected message, draft, or queue
 item is unclear. Use `get-thread` for full conversation context instead of
 relying on ambient screen text.
 
+## Thread summaries
+
+The summary card above an open email (the Summarize button, or `i`) shows what
+`get-thread-summary` reads and `summarize-thread` writes, both by
+`accountEmail` and `threadId`. `summarize-thread` returns the stored summary
+(`cached: true`) while it covers the newest message; otherwise it spends Mail's
+low-cost text model, billed as the `summary` workflow in Settings → Usage. To
+answer a question about a thread, read it with `get-thread` and answer
+yourself; call `summarize-thread` only when the user wants the card filled or
+refreshed. `no_ai_model` means no AI provider is connected: say so instead of
+retrying.
+
 ## Moving the UI
 
 `navigate` accepts `view` (`inbox`, `starred`, `sent`, `drafts`, `archive`,

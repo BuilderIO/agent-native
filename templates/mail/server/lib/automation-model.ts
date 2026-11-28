@@ -35,7 +35,7 @@ const CHEAP_MODEL_CANDIDATES: AutomationModelSettings[] = [
   },
 ];
 
-function isUnavailableEngineError(error: unknown): boolean {
+export function isUnavailableEngineError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /No LLM provider is connected|Connect an LLM provider|missing_credentials|not configured|not installed|unknown agent engine|engine .* unavailable/i.test(
     message,

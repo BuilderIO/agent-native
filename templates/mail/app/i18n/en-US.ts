@@ -847,6 +847,16 @@ const messages = {
     contacts: {
       noContactSelected: "No contact selected",
     },
+    summary: {
+      summarize: "Summarize",
+      hide: "Hide summary",
+      label: "Summary",
+      summarizing: "Summarizing…",
+      failed: "Couldn't summarize this conversation.",
+      refreshFailed: "Couldn't update this summary.",
+      needsModel:
+        "Summaries need an AI model. Use Builder.io for free, or add an API key.",
+    },
     contactPanel: {
       addToPanel: "Add to this panel",
       builtIn: "Built in",

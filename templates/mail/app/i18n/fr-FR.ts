@@ -886,6 +886,16 @@ const messages = {
     contacts: {
       noContactSelected: "Aucun contact sélectionné",
     },
+    summary: {
+      summarize: "Résumer",
+      hide: "Masquer le résumé",
+      label: "Résumé",
+      summarizing: "Résumé en cours…",
+      failed: "Impossible de résumer cette conversation.",
+      refreshFailed: "Impossible de mettre à jour ce résumé.",
+      needsModel:
+        "Les résumés nécessitent un modèle d'IA. Utilisez Builder.io gratuitement, ou ajoutez une clé API.",
+    },
     contactPanel: {
       addToPanel: "Ajouter à ce panneau",
       builtIn: "Intégrés",

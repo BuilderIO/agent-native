@@ -203,6 +203,7 @@ export function CommandPalette({
         [t("mail.actions.archive"), "E"],
         [t("mail.actions.moveToTrash"), "# / D"],
         [t("commandPalette.toggleReadState"), "U"],
+        [t("mail.summary.summarize"), "I"],
         [t("mail.mobileActions.star"), "S"],
         [t("mail.actions.labelAs"), "L"],
         [t("mail.actions.moveTo"), "V"],

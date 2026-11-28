@@ -236,6 +236,17 @@ export async function clearPair(
         ),
       )
       .returning({ id: schema.mailInboxThreads.id });
+    await tx
+      .delete(schema.mailThreadSummaries)
+      .where(
+        and(
+          eq(schema.mailThreadSummaries.ownerEmail, pair.ownerEmail),
+          eq(
+            schema.mailThreadSummaries.accountEmail,
+            pair.accountEmail.toLowerCase(),
+          ),
+        ),
+      );
     return deleted.length;
   });
 }

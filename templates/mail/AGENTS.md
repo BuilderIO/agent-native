@@ -6,7 +6,7 @@ replies, and update mail state through actions and application state.
 ## Skills
 
 Read relevant guides before deeper work:
-- `.agents/skills/inbox-reads-and-triage/SKILL.md` — for mail listing, search, coverage, and cleanup.
+- `.agents/skills/inbox-reads-and-triage/SKILL.md` — for mail listing, search, summaries, coverage, and cleanup.
 - `.agents/skills/mail-interaction-parity/SKILL.md` — for parity and safe send tests.
 - `.agents/skills/email-drafts/SKILL.md` — for composition, sending, scheduling, and tracking.
 - `.agents/skills/draft-queue/SKILL.md` — for team draft workflows.

@@ -42,6 +42,16 @@ export type EmailMessage = {
   };
 };
 
+export type ConversationSummary = {
+  threadId: string;
+  accountEmail: string;
+  line: string;
+  points: string[];
+  lastMessageId: string;
+  messageCount: number;
+  updatedAt: number;
+};
+
 export type ContactAttachment = Attachment & {
   emailId: string;
   threadId: string;

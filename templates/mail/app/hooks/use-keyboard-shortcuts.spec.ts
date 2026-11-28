@@ -290,6 +290,45 @@ describe("useSequenceShortcuts", () => {
     unmount();
   });
 
+  it("finishes a sequence ahead of a single-key shortcut that registered first", () => {
+    const summarize = vi.fn();
+    const next = vi.fn();
+    const goToInbox = vi.fn();
+    const thread = renderHook(() =>
+      useKeyboardShortcuts([
+        { key: "i", handler: summarize },
+        { key: "j", handler: next },
+      ]),
+    );
+    const layout = renderHook(() =>
+      useSequenceShortcuts([{ keys: ["g", "i"], handler: goToInbox }]),
+    );
+    const press = (key: string) =>
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key, cancelable: true }),
+      );
+
+    act(() => {
+      press("g");
+      press("i");
+    });
+    expect(goToInbox).toHaveBeenCalledOnce();
+    expect(summarize).not.toHaveBeenCalled();
+
+    act(() => {
+      press("i");
+    });
+    expect(summarize).toHaveBeenCalledOnce();
+
+    act(() => {
+      press("g");
+      press("j");
+    });
+    expect(next).toHaveBeenCalledOnce();
+    thread.unmount();
+    layout.unmount();
+  });
+
   it("does not capture sequence keys from an input", () => {
     const handler = vi.fn();
     const input = document.createElement("input");
