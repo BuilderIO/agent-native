@@ -865,7 +865,7 @@ const editor = {
   syncedPageSourceUnreadable: "Impossible de vérifier d’où vient cette page.",
   syncedPageCheckAgain: "Réessayer",
   localFileMissing:
-    "Fichier plus disponible. Il a été déplacé ou supprimé sur le disque, cette page ne peut donc pas être modifiée.",
+    "Le fichier n’est plus disponible. Il a été déplacé ou supprimé sur le disque, cette page ne peut donc pas être modifiée.",
   textColor: "Couleur du texte",
   resizeColumns: "Redimensionner les colonnes",
   backgroundColor: "Couleur d’arrière-plan",
@@ -2132,7 +2132,7 @@ const overrides = {
     pageInTrashAskOwner: "Demandez au propriétaire de la restaurer.",
     pageInTrashFileDeleted:
       "Son fichier a été supprimé ou déplacé hors du dossier, cette page a donc été placée dans la corbeille. La restaurer ne recréera pas le fichier.",
-    localFileGone: "Fichier plus disponible",
+    localFileGone: "Le fichier n’est plus disponible",
     openTrash: "Ouvrir la corbeille",
     goToMyPages: "Aller à mes pages",
     noPageDescription:

@@ -450,7 +450,9 @@ describe("a page read from a local file", () => {
   it("says when the file was deleted and stops editing", async () => {
     fixture.readLocal = {
       ok: false,
-      error: "notes/page.md was not found",
+      missing: true,
+      error:
+        "A requested file or directory could not be found at the time an operation was processed.",
     } as LocalSourceDocumentReadResult;
     await render(surface("page", "page"));
 
@@ -474,6 +476,7 @@ describe("a page read from a local file", () => {
 
     fixture.readLocal = {
       ok: false,
+      missing: true,
       error: 'Local file "notes/page.md" was not found.',
     } as LocalSourceDocumentReadResult;
     page("page", {
@@ -499,7 +502,8 @@ describe("a page read from a local file", () => {
   it("stays read-only, without saying it's deleted, when this client can't reach the file", async () => {
     fixture.readLocal = {
       ok: false,
-      error: "The desktop bridge is not available",
+      error:
+        'The desktop bridge is not available, so "notes/page.md" was not found',
     } as LocalSourceDocumentReadResult;
     await render(surface("page", "page"));
 

@@ -5005,7 +5005,7 @@ function PageEditorSessionBody({
       if (!active) return;
       if (!result.ok) {
         setLocalSourceAccess("unavailable");
-        if (result.error.includes("was not found")) {
+        if (result.missing) {
           if (saveTimeoutRef.current) {
             clearTimeout(saveTimeoutRef.current);
             saveTimeoutRef.current = null;
