@@ -56,14 +56,16 @@ describe("normalizeSearchTitle", () => {
 describe("rankTitlesByQuery tiers", () => {
   const items = [
     candidate("exact", "Road"),
-    candidate("prefix", "Roadmap"),
+    candidate("prefix", "Road trip", "2026-03-01T00:00:00.000Z"),
+    candidate("completion", "Roadmap"),
     candidate("word-prefix", "Stellar Road"),
     candidate("substring", "Crossroad"),
   ];
 
-  it("orders exact, prefix, word-prefix, and substring titles from best to worst", () => {
+  it("orders exact, completion, prefix, word-prefix, and substring titles from best to worst", () => {
     expect(rankIds(items, "road")).toEqual([
       "exact",
+      "completion",
       "prefix",
       "word-prefix",
       "substring",
@@ -74,9 +76,35 @@ describe("rankTitlesByQuery tiers", () => {
     const ranked = rankTitlesByQuery(buildTitleSearchIndex(items), "road");
     const tierById = new Map(ranked.map((r) => [r.candidate.id, r.tier]));
     expect(tierById.get("exact")).toBe(TITLE_MATCH_TIER.exact);
+    expect(tierById.get("completion")).toBe(TITLE_MATCH_TIER.completion);
     expect(tierById.get("prefix")).toBe(TITLE_MATCH_TIER.prefix);
     expect(tierById.get("word-prefix")).toBe(TITLE_MATCH_TIER.wordPrefix);
     expect(tierById.get("substring")).toBe(TITLE_MATCH_TIER.substring);
+  });
+
+  it("puts the title a query completes above newer titles it only starts", () => {
+    expect(
+      rankIds(
+        [
+          candidate(
+            "board",
+            "Task Priorities board: simpler columns",
+            "2026-11-20T00:00:00.000Z",
+          ),
+          candidate(
+            "views",
+            "Task Priorities: the views you could have",
+            "2026-11-10T00:00:00.000Z",
+          ),
+          candidate(
+            "collection",
+            "Task Priorities",
+            "2026-10-28T00:00:00.000Z",
+          ),
+        ],
+        "task prio",
+      ),
+    ).toEqual(["collection", "board", "views"]);
   });
 
   it("excludes titles that do not match at all and are too short to fuzzy match", () => {

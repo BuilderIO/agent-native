@@ -292,6 +292,9 @@ describe("the search index", () => {
         "zephyr quince",
         "Covers tundra",
       );
+      // The id order would put the longer title first on a tie.
+      await insertNote("z-almanac", "Kestrel Almanac");
+      await insertNote("a-almanac", "Kestrel Almanac drafts");
       await prepareFully();
     });
 
@@ -325,6 +328,17 @@ describe("the search index", () => {
     it("ranks exact, prefix, word-prefix, substring, then summary matches", async () => {
       expect(await searchIds("task priorities")).toEqual(["p1", "p2"]);
       expect(await searchIds("priorities")).toEqual(["p3", "p1", "p4", "p2"]);
+    });
+
+    it("ranks a title the query completes above one it only starts", async () => {
+      expect(await searchIds("kestrel alm")).toEqual([
+        "z-almanac",
+        "a-almanac",
+      ]);
+      expect(await searchIds("kestrel almanac")).toEqual([
+        "z-almanac",
+        "a-almanac",
+      ]);
     });
 
     it("matches titles and summaries mid-word, bodies only at word starts", async () => {

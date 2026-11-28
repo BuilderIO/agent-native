@@ -3082,4 +3082,99 @@ describe("CommandMenu", () => {
     expect(preview()).toBe("page:b");
     expect(seen).toContain("page:b");
   });
+
+  describe("result selection as results change", () => {
+    function renderRows(rowsFor: (query: string) => string[]) {
+      act(() => {
+        root.render(
+          <CommandMenu
+            open
+            onOpenChange={() => undefined}
+            showAgentFallback={false}
+            showSettingsCommand={false}
+            showSignOutCommand={false}
+            renderResults={(query) => (
+              <CommandMenu.Group heading="Pages">
+                {rowsFor(query).map((value) => (
+                  <CommandMenu.Item
+                    key={value}
+                    value={value}
+                    onSelect={() => undefined}
+                  >
+                    {value}
+                  </CommandMenu.Item>
+                ))}
+              </CommandMenu.Group>
+            )}
+          >
+            {null}
+          </CommandMenu>,
+        );
+      });
+    }
+
+    const selectedValue = () =>
+      document
+        .querySelector('[cmdk-item][aria-selected="true"]')
+        ?.getAttribute("data-value");
+
+    function recordScrolls() {
+      const scrolled: Array<string | null> = [];
+      vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(
+        function (this: Element) {
+          scrolled.push(this.getAttribute("data-value"));
+        },
+      );
+      return scrolled;
+    }
+
+    it("highlights the new first result when results reorder at the same count", async () => {
+      renderRows(() => ["page:a", "page:b"]);
+      expect(selectedValue()).toBe("page:a");
+
+      renderRows(() => ["page:b", "page:a"]);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(selectedValue()).toBe("page:b");
+    });
+
+    it("scrolls the new selection into view, not the row selected before", () => {
+      renderRows((query) =>
+        query
+          ? ["page:x", "page:y", "page:e"]
+          : ["page:a", "page:b", "page:c", "page:d", "page:e"],
+      );
+      const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+      for (let step = 0; step < 4; step += 1) {
+        act(() => {
+          input!.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+          );
+        });
+      }
+      expect(selectedValue()).toBe("page:e");
+
+      const scrolled = recordScrolls();
+      search("x");
+
+      expect(selectedValue()).toBe("page:x");
+      expect(scrolled.at(-1)).toBe("page:x");
+    });
+
+    it("leaves a row the pointer selected where it is", () => {
+      renderRows(() => ["page:a", "page:b"]);
+      const scrolled = recordScrolls();
+      const row = document.querySelector<HTMLElement>(
+        '[cmdk-item][data-value="page:b"]',
+      );
+      act(() => {
+        row!.dispatchEvent(new Event("pointermove", { bubbles: true }));
+      });
+
+      expect(selectedValue()).toBe("page:b");
+      expect(scrolled).not.toContain("page:b");
+    });
+  });
 });

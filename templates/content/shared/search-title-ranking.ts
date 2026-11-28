@@ -7,14 +7,20 @@ import {
 /**
  * Browser-side title ranking for the command search picker's instant lane.
  * Mirrors the title tiers `actions/_document-search-ranking.ts` computes in
- * SQL (exact, prefix, word-prefix, substring) so the two lanes agree on order
- * for the tiers they share, then adds one browser-only fuzzy tier below them.
- * Keep the tier numbers aligned with the server's `matchTier` (5/4/3/2) — the
- * parity test compares order, and matching numbers make mismatches obvious.
+ * SQL (exact, completion, prefix, word-prefix, substring) so the two lanes
+ * agree on order for the tiers they share, then adds one browser-only fuzzy
+ * tier below them. Keep the tier numbers aligned with the server's
+ * `matchTier` (6/5/4/3/2) — the parity test compares order, and matching
+ * numbers make mismatches obvious.
+ *
+ * A completion is a title the query becomes by finishing its last word:
+ * "task prio" completes "Task Priorities" but only starts "Task Priorities
+ * board", so the whole-title match ranks first however old it is.
  */
 
 export const TITLE_MATCH_TIER = {
-  exact: 5,
+  exact: 6,
+  completion: 5,
   prefix: 4,
   wordPrefix: 3,
   substring: 2,
@@ -99,6 +105,16 @@ function compileNeedle(term: SearchQueryTerm): CompiledNeedle {
 
 function titleContainsNeedle(normalizedTitle: string, needle: string): boolean {
   return needle.length > 0 && normalizedTitle.includes(needle);
+}
+
+const WORD_CHARACTERS = /^[\p{L}\p{N}_]*$/u;
+
+/** The title is the query with its last word finished, and nothing after. */
+function titleCompletesQuery(normalizedTitle: string, simple: string): boolean {
+  return (
+    normalizedTitle.startsWith(simple) &&
+    WORD_CHARACTERS.test(normalizedTitle.slice(simple.length))
+  );
 }
 
 // Mirrors the server's `simpleQueries` in _document-search-ranking.ts: a
@@ -261,7 +277,10 @@ function compileQuery(rawQuery: string): CompiledQuery | null {
   };
 }
 
-/** Exact, prefix, word-prefix and substring tiers; null when none apply. */
+/**
+ * Exact, completion, prefix, word-prefix and substring tiers; null when none
+ * apply.
+ */
 function rankSharedTiers(
   normalizedTitle: string,
   query: CompiledQuery,
@@ -278,6 +297,13 @@ function rankSharedTiers(
   if (!allSubstrings) return null;
   if (query.simpleQueries.some((simple) => normalizedTitle === simple)) {
     return TITLE_MATCH_TIER.exact;
+  }
+  if (
+    query.simpleQueries.some((simple) =>
+      titleCompletesQuery(normalizedTitle, simple),
+    )
+  ) {
+    return TITLE_MATCH_TIER.completion;
   }
   if (
     query.simpleQueries.some((simple) => normalizedTitle.startsWith(simple))

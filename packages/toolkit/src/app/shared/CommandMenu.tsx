@@ -48,6 +48,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   lazy,
@@ -89,11 +90,13 @@ function CommandSelectionTracker({
 function FirstResultPromoter({
   enabled,
   navigatedRef,
+  containerRef,
   getFirstValue,
   onPromote,
 }: {
   enabled: boolean;
   navigatedRef: { current: boolean };
+  containerRef: { current: HTMLElement | null };
   getFirstValue: () => string | null | undefined;
   onPromote: (value: string) => void;
 }) {
@@ -104,6 +107,50 @@ function FirstResultPromoter({
     const first = getFirstValue();
     if (first) onPromote(first);
   }, [count, enabled, getFirstValue, navigatedRef, onPromote]);
+
+  // Results can also reorder without changing how many there are, as when
+  // server results replace the instant ones. Move the highlight before paint.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!enabled || !container) return;
+    const observer = new MutationObserver(() => {
+      if (navigatedRef.current) return;
+      const first = getFirstValue();
+      if (first) flushSync(() => onPromote(first));
+    });
+    observer.observe(container, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [containerRef, enabled, getFirstValue, navigatedRef, onPromote]);
+  return null;
+}
+
+// cmdk scrolls a newly selected row into view before the rows re-render for a
+// controlled value, so it scrolls to the row selected before (often far down
+// the old results) and never to the new one. Scroll once the row is marked, as
+// cmdk would, but leave a row the pointer chose where it is.
+function SelectedRowScroller({
+  containerRef,
+  hoveredValueRef,
+}: {
+  containerRef: { current: HTMLElement | null };
+  hoveredValueRef: { current: string | null };
+}) {
+  const value = useCommandState((state) => state.value);
+
+  useLayoutEffect(() => {
+    if (!value || value === hoveredValueRef.current) return;
+    const item = Array.from(
+      containerRef.current?.querySelectorAll("[cmdk-item]") ?? [],
+    ).find((row) => row.getAttribute("data-value") === value);
+    if (!item) return;
+    if (item.parentElement?.firstChild === item) {
+      item
+        .closest("[cmdk-group]")
+        ?.querySelector("[cmdk-group-heading]")
+        ?.scrollIntoView({ block: "nearest" });
+    }
+    item.scrollIntoView({ block: "nearest" });
+  }, [containerRef, hoveredValueRef, value]);
   return null;
 }
 
@@ -630,6 +677,7 @@ export function CommandMenu<TAppContext = unknown>({
   const [selectedCommandValue, setSelectedCommandValue] = useState("");
   const [promotedValue, setPromotedValue] = useState<string>();
   const navigatedRef = useRef(false);
+  const hoveredValueRef = useRef<string | null>(null);
   const models = useChatModels({
     enabled: open && showAgentFallback,
     storageKey: chatModelSelectionStorageKey(chatStorageKey),
@@ -659,6 +707,7 @@ export function CommandMenu<TAppContext = unknown>({
     if (searchValueRef.current === value) return;
     searchValueRef.current = value;
     navigatedRef.current = false;
+    hoveredValueRef.current = null;
     setSearch(value);
     onSearchChangeRef.current?.(value);
   }, []);
@@ -1302,14 +1351,17 @@ export function CommandMenu<TAppContext = unknown>({
               (event.ctrlKey && ["n", "j", "p", "k"].includes(event.key))
             ) {
               navigatedRef.current = true;
+              hoveredValueRef.current = null;
             }
           }}
           onPointerMoveCapture={(event) => {
-            if (
-              event.target instanceof Element &&
-              event.target.closest("[cmdk-item]")
-            ) {
+            const hoveredRow =
+              event.target instanceof Element
+                ? event.target.closest("[cmdk-item]")
+                : null;
+            if (hoveredRow) {
               navigatedRef.current = true;
+              hoveredValueRef.current = hoveredRow.getAttribute("data-value");
             }
             if (
               initialSelection === "none" &&
@@ -1377,8 +1429,13 @@ export function CommandMenu<TAppContext = unknown>({
               <FirstResultPromoter
                 enabled={open && commandMenuValue === undefined}
                 navigatedRef={navigatedRef}
+                containerRef={containerRef}
                 getFirstValue={getFirstCommandValue}
                 onPromote={setPromotedValue}
+              />
+              <SelectedRowScroller
+                containerRef={containerRef}
+                hoveredValueRef={hoveredValueRef}
               />
               {(appCommandGroups !== undefined ||
                 embeddedChatSlot ||

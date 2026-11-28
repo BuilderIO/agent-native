@@ -129,32 +129,25 @@ export function documentSearchRanking(
         ),
       )!
     : sql`false`;
+  const simpleTier = (compare: (query: string) => SQL) =>
+    normalizedSimpleQueries.length
+      ? and(
+          guardNormalizedTitle ? allTitleSubstrings : sql`true`,
+          or(...normalizedSimpleQueries.map(compare))!,
+        )!
+      : sql`false`;
+  // Tiers match `TITLE_MATCH_TIER` in shared/search-title-ranking.ts. A
+  // completion is the query with its last word finished and nothing after.
   const matchTier = sql<number>`case
-    when ${
-      normalizedSimpleQueries.length
-        ? and(
-            guardNormalizedTitle ? allTitleSubstrings : sql`true`,
-            or(
-              ...normalizedSimpleQueries.map(
-                (query) => sql`${normalizedTitle} = ${query}`,
-              ),
-            )!,
-          )!
-        : sql`false`
-    } then 5
-    when ${
-      normalizedSimpleQueries.length
-        ? and(
-            guardNormalizedTitle ? allTitleSubstrings : sql`true`,
-            or(
-              ...normalizedSimpleQueries.map(
-                (query) =>
-                  sql`${normalizedTitle} like ${`${escapeLike(query)}%`} escape '\\'`,
-              ),
-            )!,
-          )!
-        : sql`false`
-    } then 4
+    when ${simpleTier((query) => sql`${normalizedTitle} = ${query}`)} then 6
+    when ${simpleTier(
+      (query) =>
+        sql`${normalizedTitle} ~ ${`^${escapeRegex(query)}[[:alnum:]_]*$`}`,
+    )} then 5
+    when ${simpleTier(
+      (query) =>
+        sql`${normalizedTitle} like ${`${escapeLike(query)}%`} escape '\\'`,
+    )} then 4
     when ${allTitleSubstrings} and ${allTitleWordPrefixes} then 3
     when ${allTitleSubstrings} then 2
     when ${allTitleOrDescription} then 1

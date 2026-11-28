@@ -93,6 +93,8 @@ const FIXTURES = [
     content: `${"tick tock ".repeat(300)}bell`,
   },
   { id: "long", title: "Word list", description: "", content: LONG_PHRASE },
+  // Newer than p1, which "task prio" completes and this only starts.
+  { id: "board", title: "Task Priorities board", description: "", content: "" },
 ];
 
 async function search(
@@ -148,6 +150,7 @@ describe("indexed search and the fallback scan", () => {
     "task priorities",
     "priorities",
     "prio",
+    "task prio",
     "Q3",
     "roadmap OR engineering",
     "priorities -task",
@@ -165,6 +168,13 @@ describe("indexed search and the fallback scan", () => {
     const indexed = await search(query, { fallback: false });
     expect(indexed.length).toBeGreaterThan(0);
     expect(indexed).toEqual(await search(query, { fallback: true }));
+  });
+
+  it("agree that a title the query completes beats a newer one it only starts", async () => {
+    for (const fallback of [false, true]) {
+      const ids = await search("task prio", { fallback });
+      expect(ids.slice(0, 2)).toEqual(["p1", "board"]);
+    }
   });
 
   it("agree that a phrase doesn't span two fields", async () => {

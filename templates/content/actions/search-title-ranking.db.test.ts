@@ -14,8 +14,8 @@ import {
 // This test shows that for title-tier fixtures, the order the shared
 // `rankTitlesByQuery` module (the command search picker's instant lane)
 // produces equals the order `search-documents` (the server lane) produces,
-// for the tiers both lanes implement: exact, contiguous-prefix, title
-// word-prefix, and other title substring coverage. The picker's fuzzy tier is
+// for the tiers both lanes implement: exact, completion, contiguous-prefix,
+// title word-prefix, and other title substring coverage. The picker's fuzzy tier is
 // browser-only and has no server counterpart to compare against.
 
 const TEST_DB_PATH = join(
@@ -112,9 +112,10 @@ async function compareOrders(query: string, parentId: string) {
 }
 
 describe("shared title ranking matches search-documents' title tiers", () => {
-  it("orders exact, prefix, word-prefix, and substring matches identically for a single term", async () => {
+  it("orders exact, completion, prefix, word-prefix, and substring matches identically for a single term", async () => {
     const parentId = await seedTitles("single", [
       "Road",
+      "Road trip",
       "Roadmap",
       "Stellar Road",
       "Crossroad",
@@ -125,10 +126,32 @@ describe("shared title ranking matches search-documents' title tiers", () => {
     expect(serverOrder).toEqual(browserOrder);
     expect(
       serverOrder.map((id) => id.replace("title-rank-single-", "")),
-    ).toEqual(["road", "roadmap", "stellar-road", "crossroad"]);
+    ).toEqual(["road", "roadmap", "road-trip", "stellar-road", "crossroad"]);
   });
 
-  it("orders exact, prefix, word-prefix, and substring matches identically for a multi-term AND query", async () => {
+  it("puts the title a query completes above newer titles it only starts", async () => {
+    const parentId = await seedTitles("completion", [
+      "Task Priorities board: simpler columns",
+      "Task Priorities: the views you could have",
+      "Task Priorities",
+    ]);
+
+    const { serverOrder, browserOrder } = await compareOrders(
+      "task prio",
+      parentId,
+    );
+
+    expect(serverOrder).toEqual(browserOrder);
+    expect(
+      serverOrder.map((id) => id.replace("title-rank-completion-", "")),
+    ).toEqual([
+      "task-priorities",
+      "task-priorities-board-simpler-columns",
+      "task-priorities-the-views-you-could-have",
+    ]);
+  });
+
+  it("orders exact, completion, prefix, word-prefix, and substring matches identically for a multi-term AND query", async () => {
     const parentId = await seedTitles("multi", [
       "Stellar Road",
       "Stellar Roadside",
