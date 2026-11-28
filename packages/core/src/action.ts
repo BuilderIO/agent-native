@@ -1,3 +1,11 @@
+import {
+  ActionError as PortableActionError,
+  ActionPostCommitError,
+  defineActionErrors as createBaseActionErrors,
+  isActionError,
+  isActionPostCommitError,
+  type ActionFailOptions,
+} from "@agent-native/actions/contract";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 import { isA2AForegroundCall } from "./a2a/foreground-call-scope.js";
@@ -325,24 +333,22 @@ export interface AgentActionStopOptions {
   toolResult?: string;
 }
 
+export { ActionPostCommitError, isActionError, isActionPostCommitError };
+
 export interface ActionContractErrorOptions {
   errorCode: string;
   details?: Record<string, unknown>;
   statusCode?: number;
 }
 
-export class ActionContractError extends Error {
-  readonly actionContractError = true;
-  readonly errorCode: string;
-  readonly details?: Record<string, unknown>;
-  readonly statusCode: number;
-
+export class ActionContractError extends PortableActionError {
   constructor(message: string, options: ActionContractErrorOptions) {
-    super(message);
+    super(message, {
+      errorCode: options.errorCode,
+      statusCode: options.statusCode ?? 409,
+      ...(options.details === undefined ? {} : { details: options.details }),
+    });
     this.name = "ActionContractError";
-    this.errorCode = options.errorCode;
-    this.details = options.details;
-    this.statusCode = options.statusCode ?? 409;
   }
 }
 
@@ -351,6 +357,7 @@ export function isActionContractError(
 ): error is ActionContractError {
   return (
     error instanceof ActionContractError ||
+    isActionError(error) ||
     (!!error &&
       typeof error === "object" &&
       (error as { actionContractError?: unknown }).actionContractError ===
@@ -359,16 +366,12 @@ export function isActionContractError(
   );
 }
 
-export interface FailOptions {
-  errorCode?: string;
-  statusCode?: number;
-  details?: Record<string, unknown>;
-}
+export type FailOptions = ActionFailOptions;
 
 export function fail(message: string, options: FailOptions = {}): never {
   throw new ActionContractError(message, {
     errorCode: options.errorCode ?? "action_failed",
-    statusCode: options.statusCode ?? 400,
+    statusCode: options.statusCode ?? options.status ?? 400,
     ...(options.details === undefined ? {} : { details: options.details }),
   });
 }
@@ -396,8 +399,9 @@ export interface ActionErrors<TCode extends string> {
 export function defineActionErrors<const TCode extends string>(
   ...codes: [TCode, ...TCode[]]
 ): ActionErrors<TCode> {
+  const base = createBaseActionErrors(...codes);
   const errors: ActionErrors<TCode> = {
-    codes: Object.freeze([...new Set(codes)]),
+    codes: base.codes,
     fail: (message, errorCode, options = {}) =>
       fail(message, { ...options, errorCode }),
     noWrite: (message, errorCode, options = {}) => {

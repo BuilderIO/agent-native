@@ -886,7 +886,9 @@ async function cleanupWithChatProvider({
           { role: "system", content: buildCleanupSystemPrompt(instructions) },
           { role: "user", content: buildCleanupUserPrompt(text) },
         ],
-        temperature: 0,
+        ...(provider === "openai"
+          ? { reasoning_effort: "none" }
+          : { temperature: 0 }),
       }),
       signal: withClientAbort(controller.signal, clientAbortSignal),
     });

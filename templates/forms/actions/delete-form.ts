@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -23,6 +27,8 @@ export default defineAction({
         "If true, permanently delete the form and all responses (cannot be undone). Default false (soft delete).",
       ),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args) => {
     const ids = Array.isArray(args.id) ? args.id : [args.id];
     const deleteOne = async (id: string) => {

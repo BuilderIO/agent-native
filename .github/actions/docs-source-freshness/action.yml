@@ -218,6 +218,7 @@ runs:
             "package.json",
             "pnpm-lock.yaml",
             "pnpm-workspace.yaml",
+            "packages/actions/**",
             "packages/agentkit/**",
             "packages/core/**",
             "packages/core-corpus/**",

@@ -101,6 +101,7 @@ export default defineAction({
     when: (_args, result) => normalizeActionChangeResult(result) !== null,
     projectResult: (_args, result) => normalizeActionChangeResult(result),
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     await assertAccess("form", args.id, "editor");
 

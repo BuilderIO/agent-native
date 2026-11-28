@@ -1349,7 +1349,7 @@ esac
   it("keeps the release changeset package list aligned with the publisher", () => {
     const source = readFileSync("scripts/create-release-changeset.ts", "utf8");
     assert.match(source, /NPM_PUBLISH_PACKAGE_NAMES/);
-    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 12);
+    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 13);
   });
 
   it("allows npm propagation to settle before failing a publish", () => {

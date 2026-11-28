@@ -291,7 +291,6 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
         ...GOOGLE_IDENTITY_SCOPES,
         "https://www.googleapis.com/auth/calendar.readonly",
         "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/calendar.calendarlist",
       ]),
       requiredScopes: [
         ...GOOGLE_IDENTITY_SCOPES,

@@ -33,6 +33,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "packages/actions/**"
       - "packages/agentkit/**"
       - "packages/core/**"
       - "packages/creative-context/**"
@@ -186,6 +187,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           NIGHTLY_PATHS: |
+            packages/actions/**
             packages/agentkit/**
             packages/core/**
             packages/creative-context/**
@@ -624,6 +626,7 @@ jobs:
           jq -r '
             .changesets[]
             | select(any(.releases[]?.name;
+                . == "@agent-native/actions" or
                 . == "@agent-native/agentkit" or
                 . == "@agent-native/core" or
                 . == "@agent-native/core-corpus" or
@@ -649,6 +652,7 @@ jobs:
         if: github.event_name == 'push'
         run: >-
           pnpm -r
+          --filter '@agent-native/actions...'
           --filter '@agent-native/agentkit...'
           --filter '@agent-native/core...'
           --filter '@agent-native/core-corpus...'

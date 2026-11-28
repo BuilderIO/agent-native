@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import {
   checkSaveRevision,
   countSaveOutcome,
@@ -83,6 +87,11 @@ export default defineAction({
       .optional()
       .describe("New status"),
   }),
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    args.settings !== undefined &&
+    Object.prototype.hasOwnProperty.call(args.settings, "integrations"),
+  mcpTool: "search",
   run: async (args, ctx) => {
     await assertAccess("form", args.id, "editor");
 

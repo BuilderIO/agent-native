@@ -27,6 +27,7 @@ export default defineAction({
       message: "formId is required",
     }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const formId = args.formId ?? args.form;
     if (!formId) fail("formId is required", { errorCode: "form_id_required" });

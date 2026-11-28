@@ -1,0 +1,208 @@
+---
+title: "Auth, Context & Incremental Migration"
+description: "Configure unified auth context across HTTP, MCP, and CLI callers with Clerk, Better Auth, or Supabase, enforce authorization and approvals, and migrate legacy routes incrementally."
+---
+
+# Auth, Context & Incremental Migration
+
+Define one `createContext()` function in `actions/context.ts` to bridge your existing auth provider across browser sessions, MCP bearer tokens, Server Components, and CLI invocations.
+
+## 1. Define Typed Context (`actions/context.ts`) {#auth-context}
+
+Export `createContext` and a typed action builder via `createActionBuilder<AppContext>()`. Codegen detects `actions/context.ts` automatically.
+
+<TabsBlock
+  id="auth-recipes-tabs"
+  tabs={[
+    {
+      id: "clerk",
+      label: "Clerk (Next.js)",
+      blocks: [
+        {
+          type: "code",
+          id: "auth-recipe-clerk",
+          data: {
+            language: "ts",
+            code: `// actions/context.ts
+import { auth } from "@clerk/nextjs/server";
+import { createActionBuilder, type ActionContextInput } from "@agent-native/actions";
+import { verifyApiKey } from "@/lib/api-keys";
+
+export async function createContext({ caller, headers }: ActionContextInput) {
+  if (caller === "cli") {
+    const devUserId =
+      process.env.NODE_ENV !== "production" ? process.env.DEV_USER_ID ?? null : null;
+    return { caller, userId: devUserId, orgId: null };
+  }
+  if (caller === "mcp") {
+    const token = headers.get("authorization")?.replace(/^Bearer\\s+/i, "");
+    const verified = token ? await verifyApiKey(token) : null;
+    return { caller, userId: verified?.userId ?? null, orgId: verified?.orgId ?? null };
+  }
+  const session = await auth();
+  return { caller, userId: session.userId, orgId: session.orgId ?? null };
+}
+
+export type AppContext = Awaited<ReturnType<typeof createContext>>;
+export const defineAppAction = createActionBuilder<AppContext>();`,
+          },
+        },
+      ],
+    },
+    {
+      id: "better-auth",
+      label: "Better Auth",
+      blocks: [
+        {
+          type: "code",
+          id: "auth-recipe-better-auth",
+          data: {
+            language: "ts",
+            code: `// actions/context.ts
+import { createActionBuilder, type ActionContextInput } from "@agent-native/actions";
+import { auth } from "@/lib/auth";
+
+export async function createContext({ caller, headers }: ActionContextInput) {
+  const session = await auth.api.getSession({ headers });
+  return {
+    caller,
+    user: session?.user ?? null,
+    orgId: session?.session.activeOrganizationId ?? null,
+  };
+}
+
+export type AppContext = Awaited<ReturnType<typeof createContext>>;
+export const defineAppAction = createActionBuilder<AppContext>();`,
+          },
+        },
+      ],
+    },
+    {
+      id: "supabase",
+      label: "Supabase Auth",
+      blocks: [
+        {
+          type: "code",
+          id: "auth-recipe-supabase",
+          data: {
+            language: "ts",
+            code: `// actions/context.ts
+import { createActionBuilder, type ActionContextInput } from "@agent-native/actions";
+import { createServerClient } from "@/lib/supabase-server";
+
+export async function createContext({ caller, request }: ActionContextInput) {
+  const supabase = await createServerClient(request);
+  const { data } = await supabase.auth.getUser();
+  return { caller, user: data.user ?? null, supabase };
+}
+
+export type AppContext = Awaited<ReturnType<typeof createContext>>;
+export const defineAppAction = createActionBuilder<AppContext>();`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+## 2. Authorization, Approvals & Structured Errors {#errors}
+
+Execution runs in a fixed order: input schema validation → `authorize(input, ctx)` → `needsApproval(input, ctx)` → `run(input, ctx)` → `outputSchema` validation. Unauthorized callers never reach `needsApproval` or `run`.
+
+Use `fail(message, { statusCode, errorCode, details })` or `defineActionErrors()` for structured errors shared with `@agent-native/core`:
+
+```ts
+// actions/delete-todo.ts
+import { defineActionErrors } from "@agent-native/actions";
+import { z } from "zod";
+import { db } from "../lib/db";
+import { defineAppAction } from "./context";
+
+const errors = defineActionErrors("not_found");
+
+export default defineAppAction({
+  description: "Permanently delete a todo item",
+  schema: z.object({ id: z.string().describe("Todo ID") }),
+  destructive: true,
+  needsApproval: true,
+  authorize: (_input, ctx) => Boolean(ctx.user),
+  run: async ({ id }, ctx) => {
+    const deleted = await db.todos.delete({
+      where: { id, userId: ctx.user?.id },
+    });
+    if (!deleted) {
+      errors.fail("Todo not found.", "not_found", {
+        statusCode: 404,
+        details: { id },
+      });
+    }
+    return { deletedId: id };
+  },
+});
+```
+
+- **UI callers** receive HTTP `404` and read a display-safe message with `actionErrorMessage(err)`.
+- **MCP and agent callers** receive `isError: true` with `errorCode: "not_found"` and `details`.
+- **Post-commit failures** (for example, `outputSchema` failing after `run()` already wrote) throw `ActionPostCommitError` with `committed: true` so callers avoid blind retries.
+
+<Callout tone="warning">
+
+**Authenticate remote MCP mounts.** In production, configure `mcp: { authenticate: (request) => verifyBearerToken(request), include: [...] }` on `createNextHandler()` or `actions.createHandler()` so remote MCP clients can only discover and invoke permitted actions.
+
+</Callout>
+
+## 3. Incremental Migration {#incremental-migration}
+
+Mount `@agent-native/actions` alongside existing REST routes, tRPC routers, or Server Actions and move one feature slice at a time:
+
+<Steps>
+
+### Initialize in the existing repo
+
+Run `npx @agent-native/actions init` and wire `actions/context.ts` to your current auth helper.
+
+### Move one resource slice into `actions/`
+
+Create one file per operation (`actions/<verb>-<noun>.ts`) with `defineAppAction()`, Zod `.describe()` annotations, `http: { method: "GET" }` + `readOnly: true` for reads, and `fail(message, { statusCode, errorCode })` for errors.
+
+### Swap matching screens to action hooks
+
+Replace `fetch()` calls in those components with `useActionQuery` / `useActionMutation` (or your framework's binding), verify with `pnpm action --list` and typecheck, then delete the superseded legacy route.
+
+</Steps>
+
+### Coding-Agent Migration Prompt
+
+Paste this into Claude Code or Codex to migrate a legacy route folder mechanically:
+
+```text
+Migrate the routes under `app/api/todos/` to `@agent-native/actions`:
+1. Create one file per operation in `actions/<verb>-<noun>.ts` using `defineAppAction()`.
+2. Add a Zod `schema` with `.describe()` on every field.
+3. Mark read-only actions with `http: { method: "GET" }` and `readOnly: true`.
+4. Replace manual JSON error responses with `fail(msg, { statusCode, errorCode })`.
+5. Update matching UI components from `fetch()` to `useActionQuery` / `useActionMutation`.
+6. Verify with `pnpm action --list` and typecheck before removing the old routes.
+```
+
+## FAQ {#faq}
+
+<Accordion>
+
+### Does `@agent-native/actions` require PostgreSQL, Drizzle, or Better Auth?
+
+No. `run()` is plain TypeScript — use Prisma, Drizzle, Kysely, Supabase, MongoDB, external APIs, or in-memory state with your existing auth stack.
+
+### Which schema libraries are supported?
+
+`defineAction()` accepts any validator implementing Standard Schema (Zod v3/v4, Valibot, ArkType). For MCP or AI SDK tool export, use a validator with Standard JSON Schema support (such as Zod v4) or provide `toolSchema`.
+
+### How do I hide UI-only actions from MCP or AI agents?
+
+Set `mcpTool: false` to hide an action from MCP clients, or `agentTool: false` to exclude it from AI SDK tool exporters while keeping typed UI hooks and HTTP endpoints.
+
+### Does importing hooks pull server code into the browser bundle?
+
+No. Client entrypoints (`@agent-native/actions/react`, `/solid`, `/vue`, `/svelte`, `/client`) only import `type AppActions` — no server code, database drivers, or Zod schemas enter the client bundle.
+
+</Accordion>

@@ -9,6 +9,7 @@ export default defineAction({
   description: "Trigger a UI refresh by writing and deleting a refresh signal.",
   schema: z.object({}),
   http: false,
+  mcpTool: false,
   run: async () => {
     await writeAppState("refresh-trigger", { ts: Date.now() });
     await deleteAppState("refresh-trigger");

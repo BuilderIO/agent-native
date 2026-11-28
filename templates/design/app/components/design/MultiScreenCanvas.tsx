@@ -539,7 +539,6 @@ import {
   getCrossScreenSourceGeometry,
   getCrossScreenDropGuideForHitTest,
   getCrossScreenDropGuideStyle,
-  getCrossScreenGhostStyle,
   isCrossScreenDropAxis,
   isCrossScreenDropMode,
   isCrossScreenDropPlacement,
@@ -552,6 +551,11 @@ import {
   resolveCrossScreenPathFrameHitAtRelease,
   CrossScreenPathFrameHitTracker,
 } from "./multi-screen/cross-screen-drop";
+import {
+  CrossScreenDragGhostLayer,
+  createCrossScreenGhostStore,
+  type CrossScreenDragGhost,
+} from "./multi-screen/cross-screen-ghost";
 import {
   admitBootBudget,
   admitIframesProgressively,
@@ -1553,15 +1557,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const onPrimitiveReparentRef = useRef(onPrimitiveReparent);
   const vectorEditRef = useRef(vectorEdit);
 
-  interface CrossScreenDragGhost {
-    boardX: number;
-    boardY: number;
-    width?: number;
-    height?: number;
-    dimmed?: boolean;
-    background?: string;
-    borderRadius?: string;
-  }
   interface CrossScreenDragTarget {
     id: string;
     geometry: FrameGeometry;
@@ -1572,9 +1567,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   } | null>(null);
   const crossScreenProxyTraceRef = useRef<string | null>(null);
   const crossScreenResolveTraceRef = useRef<string | null>(null);
-  const [crossScreenGhost, setCrossScreenGhost] =
-    useState<CrossScreenDragGhost | null>(null);
-  const [, setCrossScreenTarget] = useState<CrossScreenDragTarget | null>(null);
+  const [crossScreenGhostStore] = useState(createCrossScreenGhostStore);
+  const [crossScreenGhostVisible, setCrossScreenGhostVisible] = useState(false);
+  const setCrossScreenGhost = useCallback(
+    (ghost: CrossScreenDragGhost | null) => {
+      crossScreenGhostStore.set(ghost);
+      setCrossScreenGhostVisible(ghost !== null);
+    },
+    [crossScreenGhostStore],
+  );
+  const [crossScreenTargetId, setCrossScreenTargetId] = useState<string | null>(
+    null,
+  );
   const [fileDragOverFrameId, setFileDragOverFrameId] = useState<string | null>(
     null,
   );
@@ -3303,7 +3307,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       crossScreenProxyTraceRef.current = null;
       crossScreenResolveTraceRef.current = null;
       setCrossScreenGhost(null);
-      setCrossScreenTarget(null);
+      setCrossScreenTargetId(null);
       clearCrossScreenDropGuide();
       crossScreenTargetRef.current = null;
       crossScreenDragMsgRef.current = null;
@@ -3857,7 +3861,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           clearCrossScreenPreviewGuide();
         }
         crossScreenTargetRef.current = nextTarget;
-        setCrossScreenTarget(nextTarget);
+        setCrossScreenTargetId(nextTarget.id);
         claimCrossScreenDrop(
           sourceScreenId,
           nextTarget.id !== sourceScreenId ||
@@ -3878,7 +3882,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           clearCrossScreenPreviewGuide();
         }
         crossScreenTargetRef.current = nextTarget;
-        setCrossScreenTarget(nextTarget);
+        setCrossScreenTargetId(nextTarget.id);
         claimCrossScreenDrop(
           sourceScreenId,
           nextTarget.id !== sourceScreenId ||
@@ -3890,7 +3894,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       } else {
         clearCrossScreenPreviewGuide();
         crossScreenTargetRef.current = null;
-        setCrossScreenTarget(null);
+        setCrossScreenTargetId(null);
         claimCrossScreenDrop(sourceScreenId, false);
         setCrossScreenGhost(buildCrossScreenGhost(boardPoint, sourceScreenId));
         clearCrossScreenDropGuide();
@@ -4999,7 +5003,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           claimCrossScreenDrop(sourceScreenId, false);
           clearCrossScreenPreviewGuide();
           setCrossScreenGhost(null);
-          setCrossScreenTarget(null);
+          setCrossScreenTargetId(null);
           crossScreenTargetRef.current = null;
           crossScreenLastBoardPointRef.current = null;
           clearCrossScreenDropGuide();
@@ -11849,13 +11853,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         activeDrag.targetIds.forEach((id) => protectedIds.add(id));
       }
     }
-    const crossScreenTargetId = crossScreenTargetRef.current?.id;
-    if (crossScreenGhost && crossScreenTargetId) {
+    if (crossScreenGhostVisible && crossScreenTargetId) {
       protectedIds.add(crossScreenTargetId);
     }
     return protectedIds;
   }, [
-    crossScreenGhost,
+    crossScreenGhostVisible,
+    crossScreenTargetId,
     editorProtectedScreenIds,
     fileDragOverFrameId,
     isDragging,
@@ -13748,22 +13752,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         />
       ) : null}
 
-      {crossScreenGhost ? (
-        <span
-          data-cross-screen-drag-ghost
-          className="pointer-events-none absolute z-40 rounded border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/20 shadow"
-          style={{
-            ...getCrossScreenGhostStyle({
-              ghost: crossScreenGhost,
-              pan,
-              scale,
-            }),
-            opacity: crossScreenGhost.dimmed ? 0.75 : 1,
-            background: crossScreenGhost.background,
-            borderRadius: crossScreenGhost.borderRadius,
-          }}
-        />
-      ) : null}
+      <CrossScreenDragGhostLayer
+        store={crossScreenGhostStore}
+        pan={pan}
+        scale={scale}
+      />
     </div>
   );
 }, areMultiScreenCanvasPropsEqual);

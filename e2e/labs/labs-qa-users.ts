@@ -62,6 +62,7 @@ async function call(
   method: string,
   url: string,
   body?: unknown,
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; text: string }> {
   const res = await fetch(url, {
     method,
@@ -71,6 +72,7 @@ async function call(
       Origin: origin,
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       ...(jar.size ? { Cookie: cookieHeader(jar) } : {}),
+      ...extraHeaders,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(45_000),
@@ -267,6 +269,15 @@ async function action(
   return call(jar, "POST", base, body ?? {});
 }
 
+async function uiAction(jar: Jar, name: string, body: Record<string, unknown>) {
+  const base = `${origin}/${probeApp}/_agent-native`;
+  const minted = await call(jar, "GET", `${base}/ui-capability`);
+  if (minted.status !== 200) return minted;
+  return call(jar, "POST", `${base}/actions/${name}`, body, {
+    "X-Agent-Native-Frontend": "1",
+  });
+}
+
 async function seedAndReadBack(jar: Jar, slot: string) {
   const name = `qa-tmp-probe-${slot}-${Date.now()}`;
   const created = await action(jar, "create-form", "POST", { name });
@@ -275,7 +286,7 @@ async function seedAndReadBack(jar: Jar, slot: string) {
   if (!id) fail("seed create-form (no id)", created);
   const read = await action(jar, "get-form", "GET", { id });
   if (read.status !== 200) fail("read-back get-form", read);
-  const del = await action(jar, "delete-form", "POST", { id });
+  const del = await uiAction(jar, "delete-form", { id });
   if (del.status !== 200) fail("cleanup delete-form", del);
   return { id, name };
 }

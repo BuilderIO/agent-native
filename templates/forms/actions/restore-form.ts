@@ -16,6 +16,7 @@ export default defineAction({
       .union([z.string(), z.array(z.string()).min(1)])
       .describe("Form ID or IDs to restore (required)"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const ids = Array.isArray(args.id) ? args.id : [args.id];
     const restoreOne = async (id: string) => {

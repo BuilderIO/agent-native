@@ -468,10 +468,8 @@
     "navigate",
     "patch-form-fields",
     "promote-community-submission",
-    "refresh-list",
     "restore-form",
     "retry-response-deliveries",
-    "show-response-insight",
     "update-form"
   ],
   "mail": [
