@@ -35,7 +35,7 @@ function tooLongReason(run: () => unknown) {
   return undefined;
 }
 
-function recordLayout(title: string, content: string) {
+function recordLayout(title: string, content: string, font?: "sans" | "serif") {
   const ops: Op[] = [];
   let page = 1;
   let pageCount = 1;
@@ -74,7 +74,7 @@ function recordLayout(title: string, content: string) {
       ops.push({ kind: "link", page, url });
     },
   };
-  layoutDocumentPdf({ title, content }, canvas);
+  layoutDocumentPdf({ title, content, font }, canvas);
   const texts = ops.filter(
     (op): op is Extract<Op, { kind: "text" }> => op.kind === "text",
   );
@@ -87,6 +87,26 @@ function recordLayout(title: string, content: string) {
     return found;
   };
   return { ops, texts, textOf, pageCount, measure, measured };
+}
+
+function spaceBetween(
+  above: Extract<Op, { kind: "text" }>,
+  below: Extract<Op, { kind: "text" }>,
+) {
+  return below.y - below.font.size * 1.05 - (above.y + above.font.size * 0.45);
+}
+
+function stanza(name: string, lines: number) {
+  return Array.from({ length: lines }, (_, index) => name + index).join("<br>");
+}
+
+const STANDARD_PDF_FONT = /^(?:Courier|Helvetica|Times|Symbol|ZapfDingbats)/;
+
+function embeddedFonts(pdf: Buffer) {
+  const names = pdf.toString("latin1").match(/(?<=\/BaseFont \/)[\w-]+/g);
+  return [
+    ...new Set(names?.filter((name) => !STANDARD_PDF_FONT.test(name))),
+  ].sort();
 }
 
 describe("document PDF layout", () => {
@@ -106,6 +126,66 @@ describe("document PDF layout", () => {
     const lineGap = textOf("second line").y - textOf("first line").y;
     const stanzaGap = textOf("third line").y - textOf("second line").y;
     expect(stanzaGap - lineGap).toBeGreaterThanOrEqual(16);
+  });
+
+  it("leaves 1em between stanzas and 24 more points under the title", () => {
+    const content = ["first line<br>second line", "third line"].join("\n");
+    for (const [font, body] of [
+      ["sans", 11],
+      ["serif", 12],
+    ] as const) {
+      const { textOf } = recordLayout("Poem", content, font);
+
+      expect(textOf("first line").font.size).toBe(body);
+      expect(
+        spaceBetween(textOf("first line"), textOf("second line")),
+      ).toBeCloseTo(0);
+      expect(
+        spaceBetween(textOf("second line"), textOf("third line")),
+      ).toBeCloseTo(body);
+      expect(spaceBetween(textOf("Poem"), textOf("first line"))).toBeCloseTo(
+        24 + body,
+      );
+    }
+  });
+
+  it("gives a heading more room above it than below it", () => {
+    const { textOf } = recordLayout(
+      "Notes",
+      ["Before", "## Section", "After"].join("\n\n"),
+    );
+
+    expect(spaceBetween(textOf("Before"), textOf("Section"))).toBeGreaterThan(
+      spaceBetween(textOf("Section"), textOf("After")) + 8,
+    );
+  });
+
+  it("moves a stanza of up to 8 lines to the next page instead of splitting it", () => {
+    let splits = 0;
+    for (let leads = 10; leads <= 30; leads++) {
+      const lead = Array.from({ length: leads }, () => "Lead");
+      const kept = recordLayout("Poem", [...lead, stanza("a", 8)].join("\n"));
+      const flowed = recordLayout("Poem", [...lead, stanza("b", 9)].join("\n"));
+
+      expect(kept.textOf("a7").page).toBe(kept.textOf("a0").page);
+      if (flowed.textOf("b8").page !== flowed.textOf("b0").page) splits += 1;
+    }
+    expect(splits).toBeGreaterThan(0);
+  });
+
+  it("keeps a heading on the page with the stanza after it", () => {
+    for (let leads = 10; leads <= 30; leads++) {
+      const { textOf } = recordLayout(
+        "Poems",
+        [
+          ...Array.from({ length: leads }, () => "Lead"),
+          "## Part two",
+          stanza("c", 6),
+        ].join("\n"),
+      );
+
+      expect(textOf("c0").page).toBe(textOf("Part two").page);
+    }
   });
 
   it("starts a new line at a hard line break and keeps its indent", () => {
@@ -453,7 +533,7 @@ describe("document PDF layout", () => {
       Array.from({ length: count }, (_, index) => `Paragraph ${index}`).join(
         "\n\n",
       );
-    const { pageCount } = recordLayout("Long", paragraphs(5000));
+    const { pageCount } = recordLayout("Long", paragraphs(4000));
 
     expect(pageCount).toBeGreaterThan(PDF_MAX_PAGES / 2);
     expect(pageCount).toBeLessThan(PDF_MAX_PAGES);
@@ -494,6 +574,33 @@ describe("renderDocumentPdf", () => {
     expect(raw.match(/\/Type \/Page\b(?!s)/g)).toHaveLength(1);
   });
 
+  it("sets a serif PDF in Spectral, with its own italic, and a sans PDF in Liberation Sans", () => {
+    const content = "Plain *lean* text";
+
+    expect(
+      embeddedFonts(
+        renderDocumentPdf({ title: "Poem", content, font: "serif" }),
+      ),
+    ).toEqual(["Spectral-Bold", "Spectral-Italic", "Spectral-Regular"]);
+    expect(
+      embeddedFonts(renderDocumentPdf({ title: "Poem", content })),
+    ).toEqual(["LiberationSans-Bold", "LiberationSans-Regular"]);
+  });
+
+  it("draws text Spectral lacks, such as Greek, in the sans font in a serif PDF", () => {
+    const pdf = renderDocumentPdf({
+      title: "Poem",
+      content: "hello Καλημέρα ✓ 👋",
+      font: "serif",
+    });
+
+    expect(embeddedFonts(pdf)).toEqual([
+      "LiberationSans-Regular",
+      "Spectral-Bold",
+      "Spectral-Regular",
+    ]);
+  });
+
   it("leaves out emoji and symbols the font lacks, and keeps the rest", () => {
     expect(() =>
       renderDocumentPdf({
@@ -505,9 +612,11 @@ describe("renderDocumentPdf", () => {
 
   it("refuses text in scripts the font can't show", () => {
     for (const content of ["before 中文 after", "שלום", "مرحبا", "हिन्दी"]) {
-      expect(() => renderDocumentPdf({ title: "Scripts", content })).toThrow(
-        PdfUnsupportedTextError,
-      );
+      for (const font of ["sans", "serif"] as const) {
+        expect(() =>
+          renderDocumentPdf({ title: "Scripts", content, font }),
+        ).toThrow(PdfUnsupportedTextError);
+      }
     }
     expect(() => renderDocumentPdf({ title: "中文", content: "Body" })).toThrow(
       PdfUnsupportedTextError,

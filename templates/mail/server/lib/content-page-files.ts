@@ -9,6 +9,8 @@ import { peerAppTarget } from "./peer-apps.js";
 
 export const CONTENT_FILE_FORMATS = ["markdown", "csv", "pdf"] as const;
 export type ContentFileFormat = (typeof CONTENT_FILE_FORMATS)[number];
+export const CONTENT_PDF_FONTS = ["sans", "serif"] as const;
+export type ContentPdfFont = (typeof CONTENT_PDF_FONTS)[number];
 const CONTENT_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const TOO_LARGE_MESSAGE =
   "This Content page is too large to attach (over 2 MB). Export it from Content and attach the file instead.";
@@ -189,12 +191,16 @@ export async function listContentPages(args: {
 export async function readContentPageFile(args: {
   id: string;
   format?: ContentFileFormat | undefined;
+  font?: ContentPdfFont | undefined;
 }): Promise<ContentPageFile> {
   const output = await readDocumentFile({
     operation: "read",
     page: 1,
     id: args.id,
     ...(args.format ? { format: args.format } : {}),
+    ...(args.format === "pdf" && args.font === "serif"
+      ? { font: args.font }
+      : {}),
   });
   const parsed = contentPageFileSchema.safeParse(output);
   if (

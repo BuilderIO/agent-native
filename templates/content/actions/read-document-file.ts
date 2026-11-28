@@ -24,6 +24,7 @@ const PDF_TEXT_UNSUPPORTED =
 
 const kindSchema = z.enum(["page", "collection"]);
 const formatSchema = z.enum(["markdown", "csv", "pdf"]);
+const pdfFontSchema = z.enum(["sans", "serif"]);
 type DocumentFileKind = z.infer<typeof kindSchema>;
 type DocumentFileFormat = z.infer<typeof formatSchema>;
 
@@ -170,7 +171,7 @@ async function collectionCsv(documentId: string, databaseId: string) {
 
 export default defineAction({
   description:
-    "List Content pages and collections another app can attach as a file, or read one as that file: a page as Markdown or PDF, a collection as CSV. A PDF comes back base64-encoded. Lists the most recently updated or search results, limited to what the caller can open. Changes nothing.",
+    "List Content pages and collections another app can attach as a file, or read one as that file: a page as Markdown or PDF, a collection as CSV. A PDF comes back base64-encoded, set in sans or serif type. Lists the most recently updated or search results, limited to what the caller can open. Changes nothing.",
   schema: z.object({
     operation: z
       .enum(["list", "read"])
@@ -199,6 +200,11 @@ export default defineAction({
       .optional()
       .describe(
         "File format for a read: markdown or pdf for a page, csv for a collection. Defaults to markdown for a page and csv for a collection.",
+      ),
+    font: pdfFontSchema
+      .optional()
+      .describe(
+        "Typeface for a PDF read: sans (the default) or serif, such as for poetry. Markdown and CSV ignore it.",
       ),
   }),
   outputSchema: documentFileOutputSchema,
@@ -323,6 +329,7 @@ export default defineAction({
           pdf = renderDocumentPdf({
             title,
             content: await withInteractiveHtmlLinks(doc.id, doc.content),
+            font: args.font,
           });
         } catch (error) {
           if (error instanceof PdfTooLongError) {

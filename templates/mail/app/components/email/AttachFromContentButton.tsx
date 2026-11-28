@@ -46,10 +46,66 @@ interface ContentPageList {
 }
 
 type PageFormat = "pdf" | "markdown";
+type PdfFont = "sans" | "serif";
 
 const PAGE_FORMATS: readonly PageFormat[] = ["pdf", "markdown"];
+const PDF_FONTS: readonly PdfFont[] = ["sans", "serif"];
+const PDF_FONT_STORAGE_KEY = "mail-content-pdf-font";
 
 const SEARCH_DELAY_MS = 250;
+
+function storedPdfFont(): PdfFont {
+  if (typeof window === "undefined") return "sans";
+  try {
+    return window.localStorage.getItem(PDF_FONT_STORAGE_KEY) === "serif"
+      ? "serif"
+      : "sans";
+    // coercion-ok: blocked storage (private browsing) has no remembered font to read.
+  } catch {
+    return "sans";
+  }
+}
+
+function ChoiceRow<T extends string>({
+  label,
+  choices,
+  value,
+  labelOf,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  choices: readonly T[];
+  value: T;
+  labelOf: (choice: T) => string;
+  disabled: boolean;
+  onChange: (choice: T) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="flex items-center justify-between gap-2"
+    >
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-1">
+        {choices.map((choice) => (
+          <Button
+            key={choice}
+            type="button"
+            size="xs"
+            variant={value === choice ? "secondary" : "ghost"}
+            aria-pressed={value === choice}
+            disabled={disabled}
+            onClick={() => onChange(choice)}
+          >
+            {labelOf(choice)}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function AttachFromContentButton({
   onAttach,
@@ -69,6 +125,7 @@ export function AttachFromContentButton({
   const [attachingId, setAttachingId] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState("");
   const [pageFormat, setPageFormat] = useState<PageFormat>("pdf");
+  const [pdfFont, setPdfFont] = useState<PdfFont>(storedPdfFont);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -111,14 +168,24 @@ export function AttachFromContentButton({
     setHighlighted("");
   };
 
+  const choosePdfFont = (font: PdfFont) => {
+    setPdfFont(font);
+    try {
+      window.localStorage.setItem(PDF_FONT_STORAGE_KEY, font);
+      // coercion-ok: with storage blocked the pick still holds for this visit.
+    } catch {}
+  };
+
   const attach = async (item: ContentPageItem) => {
     if (attachingId) return;
     setAttachingId(item.id);
     onPendingChange?.(true);
+    const format = item.kind === "collection" ? item.format : pageFormat;
     try {
       const result = (await callAction("attach-content-page", {
         id: item.id,
-        format: item.kind === "collection" ? item.format : pageFormat,
+        format,
+        ...(format === "pdf" && pdfFont === "serif" ? { font: pdfFont } : {}),
       })) as { attachment: ComposeAttachment };
       onAttach(result.attachment);
       close();
@@ -243,31 +310,33 @@ export function AttachFromContentButton({
             )}
           </CommandList>
         </Command>
-        <div
-          role="group"
-          aria-label={t("mail.compose.contentPageFormat")}
-          className="flex items-center justify-between gap-2 border-t border-border px-3 py-2"
-        >
-          <span className="text-xs text-muted-foreground">
-            {t("mail.compose.contentPageFormat")}
-          </span>
-          <div className="flex items-center gap-1">
-            {PAGE_FORMATS.map((format) => (
-              <Button
-                key={format}
-                type="button"
-                size="xs"
-                variant={pageFormat === format ? "secondary" : "ghost"}
-                aria-pressed={pageFormat === format}
-                disabled={Boolean(attachingId)}
-                onClick={() => setPageFormat(format)}
-              >
-                {format === "pdf"
-                  ? t("mail.compose.contentFormatPdf")
-                  : t("mail.compose.contentFormatMarkdown")}
-              </Button>
-            ))}
-          </div>
+        <div className="space-y-1.5 border-t border-border px-3 py-2">
+          <ChoiceRow
+            label={t("mail.compose.contentPageFormat")}
+            choices={PAGE_FORMATS}
+            value={pageFormat}
+            labelOf={(format) =>
+              format === "pdf"
+                ? t("mail.compose.contentFormatPdf")
+                : t("mail.compose.contentFormatMarkdown")
+            }
+            disabled={Boolean(attachingId)}
+            onChange={setPageFormat}
+          />
+          {pageFormat === "pdf" && (
+            <ChoiceRow
+              label={t("mail.compose.contentPdfFont")}
+              choices={PDF_FONTS}
+              value={pdfFont}
+              labelOf={(font) =>
+                font === "sans"
+                  ? t("mail.compose.contentFontSans")
+                  : t("mail.compose.contentFontSerif")
+              }
+              disabled={Boolean(attachingId)}
+              onChange={choosePdfFont}
+            />
+          )}
         </div>
       </PopoverContent>
     </Popover>

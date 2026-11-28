@@ -38,6 +38,7 @@ templates/plan/plans/*
 !templates/plan/plans/block-kitchen-sink/
 !templates/plan/plans/block-kitchen-sink/**
 packages/core/src/server/og-fonts-data.ts
+templates/content/server/lib/spectral-fonts.generated.ts
 packages/docs/app/components/searchIndex.ts
 packages/docs/public/source-index.json
 packages/mobile-app/uniwind-types.d.ts

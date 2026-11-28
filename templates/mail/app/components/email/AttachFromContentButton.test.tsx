@@ -93,6 +93,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  window.localStorage.clear();
 });
 
 describe("AttachFromContentButton", () => {
@@ -116,6 +117,49 @@ describe("AttachFromContentButton", () => {
 
     expect(attachCalls().map(([, input]) => input)).toEqual([
       { id: "plan", format: "pdf" },
+      { id: "plan", format: "markdown" },
+    ]);
+  });
+
+  it("sets a PDF in the font picked, remembers it, and offers no font for Markdown", async () => {
+    const first = renderButton();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.compose.attachFromContent" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "mail.compose.contentFontSerif",
+      }),
+    );
+    fireEvent.click(await screen.findByText("Plan"));
+    await waitFor(() => expect(first.onAttach).toHaveBeenCalledTimes(1));
+    cleanup();
+
+    const second = renderButton();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.compose.attachFromContent" }),
+    );
+    expect(
+      (
+        await screen.findByRole("button", {
+          name: "mail.compose.contentFontSerif",
+        })
+      ).getAttribute("aria-pressed"),
+    ).toBe("true");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "mail.compose.contentFormatMarkdown",
+      }),
+    );
+    expect(
+      screen.queryByRole("group", { name: "mail.compose.contentPdfFont" }),
+    ).toBeNull();
+    fireEvent.click(await screen.findByText("Plan"));
+    await waitFor(() => expect(second.onAttach).toHaveBeenCalledTimes(1));
+
+    expect(attachCalls().map(([, input]) => input)).toEqual([
+      { id: "plan", format: "pdf", font: "serif" },
       { id: "plan", format: "markdown" },
     ]);
   });
