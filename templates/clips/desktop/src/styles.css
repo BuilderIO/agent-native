@@ -3708,6 +3708,18 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: #6264a7;
 }
 
+.meeting-notification-provider-slack {
+  background: #611f69;
+}
+
+.meeting-notification-provider-whatsapp {
+  background: #25d366;
+}
+
+.meeting-notification-provider-phone {
+  background: #34c759;
+}
+
 .meeting-notification-provider-other {
   background: rgba(255, 255, 255, 0.12);
 }

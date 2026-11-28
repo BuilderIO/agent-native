@@ -342,6 +342,18 @@ fn call_end_step(
             .unwrap_or(false)
 }
 
+/// Mic attribution for the call-ended watcher. For duplex call apps (Slack) a
+/// released microphone is not the end of the call (the participant may just
+/// be muted), so their attribution can confirm the call but never end it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn call_end_attribution(
+    duplex: Option<Option<bool>>,
+    mic_only: Option<Option<bool>>,
+) -> Option<bool> {
+    let duplex = duplex.map(|state| state.filter(|in_use| *in_use));
+    crate::call_activity::combine_call_states(duplex, mic_only)
+}
+
 #[cfg(target_os = "macos")]
 fn install_call_ended_watcher(app: &AppHandle) {
     static INSTALLED: OnceLock<()> = OnceLock::new();
@@ -392,10 +404,17 @@ fn install_call_ended_watcher(app: &AppHandle) {
                     configured_bundle_ids
                 };
 
-                let coreaudio = crate::call_activity::call_app_uses_microphone(&call_app_bundle_ids);
-                let attribution = attribution_watcher
-                    .as_ref()
-                    .and_then(|watcher| watcher.mic_in_use_by(&call_app_bundle_ids));
+                let coreaudio = crate::call_activity::call_app_still_in_call(&call_app_bundle_ids);
+                let (duplex_ids, mic_only_ids): (Vec<String>, Vec<String>) = call_app_bundle_ids
+                    .iter()
+                    .cloned()
+                    .partition(|bundle_id| crate::call_activity::is_duplex_call_app(bundle_id));
+                let attribution = attribution_watcher.as_ref().and_then(|watcher| {
+                    call_end_attribution(
+                        (!duplex_ids.is_empty()).then(|| watcher.mic_in_use_by(&duplex_ids)),
+                        (!mic_only_ids.is_empty()).then(|| watcher.mic_in_use_by(&mic_only_ids)),
+                    )
+                });
 
                 let now = Instant::now();
                 let was_ever_in_use = tracker.ever_in_use;
@@ -514,9 +533,9 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        calendar_end_stop_ready, call_end_step, request_auto_stop, scheduled_end_reached,
-        source_quiet_for, take_due_auto_stop, AutoStopKind, CallEndTracker, DetectorInner,
-        SourceState,
+        calendar_end_stop_ready, call_end_attribution, call_end_step, request_auto_stop,
+        scheduled_end_reached, source_quiet_for, take_due_auto_stop, AutoStopKind, CallEndTracker,
+        DetectorInner, SourceState,
     };
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
@@ -563,6 +582,69 @@ mod tests {
             now,
             Duration::from_secs(5)
         ));
+    }
+
+    #[test]
+    fn muting_during_a_slack_huddle_does_not_end_the_recording() {
+        use crate::call_activity::either_audio_state;
+        let mut tracker = CallEndTracker::default();
+        let t0 = Instant::now();
+        let confirm = Duration::from_secs(15);
+
+        // Talking: Slack captures and plays; attribution sees Slack on the mic.
+        let coreaudio = either_audio_state(true, true, false, false);
+        let attribution = call_end_attribution(Some(Some(true)), None);
+        assert!(!call_end_step(
+            &mut tracker,
+            coreaudio,
+            attribution,
+            t0,
+            confirm
+        ));
+
+        // Muted for two minutes: mic released, remote audio keeps playing.
+        for secs in (2..=120).step_by(2) {
+            let coreaudio = either_audio_state(false, true, false, false);
+            let attribution = call_end_attribution(Some(Some(false)), None);
+            assert_eq!(attribution, None, "a released Slack mic is not a release");
+            assert!(
+                !call_end_step(
+                    &mut tracker,
+                    coreaudio,
+                    attribution,
+                    t0 + Duration::from_secs(secs),
+                    confirm
+                ),
+                "recording must keep going while muted ({secs}s)"
+            );
+        }
+
+        // Left the huddle: no capture, no playback.
+        let left = t0 + Duration::from_secs(122);
+        let coreaudio = either_audio_state(false, false, false, false);
+        let attribution = call_end_attribution(Some(Some(false)), None);
+        assert!(!call_end_step(
+            &mut tracker,
+            coreaudio,
+            attribution,
+            left,
+            confirm
+        ));
+        assert!(call_end_step(
+            &mut tracker,
+            coreaudio,
+            attribution,
+            left + confirm,
+            confirm
+        ));
+    }
+
+    #[test]
+    fn non_slack_attribution_still_reports_a_release() {
+        assert_eq!(call_end_attribution(None, Some(Some(false))), Some(false));
+        assert_eq!(call_end_attribution(None, Some(Some(true))), Some(true));
+        assert_eq!(call_end_attribution(Some(Some(true)), None), Some(true));
+        assert_eq!(call_end_attribution(Some(Some(false)), None), None);
     }
 
     #[test]

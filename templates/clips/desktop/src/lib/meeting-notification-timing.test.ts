@@ -61,6 +61,10 @@ describe("meeting notification timing", () => {
       detectMeetingJoinProvider("https://meet.google.com/abc-defg-hij", null),
     ).toBe("meet");
     expect(detectMeetingJoinProvider(null, "teams")).toBe("teams");
+    expect(detectMeetingJoinProvider(null, "slack")).toBe("slack");
+    expect(joinProviderLabel("slack")).toBe("Slack");
+    expect(detectMeetingJoinProvider(null, "whatsapp")).toBe("whatsapp");
+    expect(detectMeetingJoinProvider(null, "phone")).toBe("phone");
     expect(joinProviderLabel("zoom")).toBe("Zoom");
     expect(joinProviderLabel("other")).toBe("meeting");
   });
