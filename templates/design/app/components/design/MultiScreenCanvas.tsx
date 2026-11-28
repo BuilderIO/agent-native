@@ -565,6 +565,7 @@ import {
   getOverscannedViewportCanvasBounds,
   isFrameWithinOverscannedViewport,
   orderByViewportDistance,
+  OVERVIEW_LIVE_SCREEN_BUDGET,
   OVERVIEW_PAINT_OVERSCAN_FACTOR,
   OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
   requiresOverviewLevelOfDetail,
