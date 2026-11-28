@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "ec9702f606fbb6485a4ecde465328c85e33d5ea5",
+    "syncCommit": "cb8610ab5a2a0ef32987d96517405e634d15a9e2",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -290,7 +290,12 @@
       {
         "file": "packages/core/src/action-input-coercion.ts",
         "name": "coerceGatewayStringifiedArgs",
-        "sha256": "8d13ea9759b211f9caca597c2e0ac0bbdc780ec3f123d48306bcffcd9edaed80"
+        "sha256": "b9f91f0a87c7f389910bbe381b5d3e203844a39e5c1030b4f5a36add244154e6"
+      },
+      {
+        "file": "packages/actions/src/schema.ts",
+        "name": "coerceGatewayStringifiedArgs",
+        "sha256": "2ce66a8cb09dd807ca5ce54c58a0b1c5f67b909e284b62ba1cf2ab07a40107cb"
       },
       {
         "file": "packages/core/src/action.ts",
