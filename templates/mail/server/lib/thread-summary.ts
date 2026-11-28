@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { decodeGmailSnippet } from "../../shared/gmail-snippet.js";
+import { summaryCovers, summaryMessages } from "../../shared/thread-summary.js";
 import type {
   ConversationSummary,
   EmailAddress,
@@ -99,12 +100,6 @@ export async function readThreadSummary(
   return row ? rowToSummary(row) : null;
 }
 
-export function summaryMessages(messages: EmailMessage[]): EmailMessage[] {
-  return messages
-    .filter((message) => !message.isDraft)
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-}
-
 function looksLikeHtml(value: string): boolean {
   return /<\/?(?:html|body|div|p|br|table|span|a|td)[\s/>]/i.test(value);
 }
@@ -194,7 +189,7 @@ export function buildSummaryInput(messages: EmailMessage[]): string {
 
 const replySchema = z.object({
   line: z.string(),
-  points: z.array(z.string()).default([]),
+  points: z.array(z.string()),
 });
 
 export type ParsedSummaryReply =
@@ -278,7 +273,7 @@ export async function summarizeThread(input: {
   }
 
   const stored = await readThreadSummary(ownerEmail, accountEmail, threadId);
-  if (stored && stored.lastMessageId === latest.id) {
+  if (stored && summaryCovers(stored, messages)) {
     return { ok: true, summary: stored, cached: true };
   }
 

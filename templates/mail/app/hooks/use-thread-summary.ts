@@ -1,10 +1,11 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { summaryCovers, summaryMessages } from "@shared/thread-summary";
 import type { ConversationSummary, EmailMessage } from "@shared/types";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type StoredSummary = { summary: ConversationSummary | null };
-type SummaryTarget = { accountEmail: string; threadId: string };
+type SummaryRun = { pending: boolean; error: unknown };
 
 function summaryQueryKey(accountEmail: string, threadId: string) {
   return ["thread-summary", accountEmail.toLowerCase(), threadId] as const;
@@ -16,18 +17,11 @@ function targetId(accountEmail: string, threadId: string) {
 
 const hiddenUntilReload = new Set<string>();
 
-export function latestSummarizedId(messages: EmailMessage[] | undefined) {
-  let latest: EmailMessage | undefined;
-  for (const message of messages ?? []) {
-    if (message.isDraft) continue;
-    if (
-      !latest ||
-      new Date(message.date).getTime() >= new Date(latest.date).getTime()
-    ) {
-      latest = message;
-    }
-  }
-  return latest?.id;
+function snapshotOf(messages: EmailMessage[] | undefined) {
+  if (!messages) return undefined;
+  const covered = summaryMessages(messages);
+  const [latest = null] = covered.slice(-1);
+  return latest ? `${latest.id}:${covered.length}` : undefined;
 }
 
 export function useThreadSummaryPanel({
@@ -57,53 +51,55 @@ export function useThreadSummaryPanel({
     retry: false,
   });
 
-  const mutation = useMutation({
-    mutationFn: (target: SummaryTarget) =>
-      callAction("summarize-thread", target) as Promise<{
-        summary: ConversationSummary;
-        cached: boolean;
-      }>,
-    onSuccess: ({ summary }, target) => {
-      qc.setQueryData<StoredSummary>(
-        summaryQueryKey(target.accountEmail, target.threadId),
-        { summary },
-      );
-    },
-  });
-
+  const [runs, setRuns] = useState<Record<string, SummaryRun>>({});
+  const running = useRef(new Set<string>());
   const [requestedId, setRequestedId] = useState<string | null>(null);
   const [, setHiddenVersion] = useState(0);
   const attempted = useRef(new Set<string>());
 
   const summary = stored.data?.summary ?? null;
-  const latestId = messagesSettled
-    ? latestSummarizedId(threadMessages)
-    : undefined;
-  const forThisThread =
-    !!id &&
-    !!mutation.variables &&
-    targetId(mutation.variables.accountEmail, mutation.variables.threadId) ===
-      id;
-  const pending = forThisThread && mutation.isPending;
-  const error = forThisThread && mutation.isError ? mutation.error : null;
+  const observed = messagesSettled ? threadMessages : undefined;
+  const snapshot = snapshotOf(observed);
+  const run = id ? runs[id] : undefined;
+  const pending = run?.pending ?? false;
+  const error = run?.error ?? null;
   const open =
     !!id && !hiddenUntilReload.has(id) && (requestedId === id || !!summary);
-  const stale = !!summary && !!latestId && summary.lastMessageId !== latestId;
+  const stale =
+    !!summary && !!observed && !!snapshot && !summaryCovers(summary, observed);
 
-  const { mutate } = mutation;
   const start = useCallback(() => {
     if (!threadId) return;
-    attempted.current.add(
-      `${targetId(accountEmail, threadId)}:${latestId ?? ""}`,
+    const key = targetId(accountEmail, threadId);
+    if (running.current.has(key)) return;
+    running.current.add(key);
+    attempted.current.add(`${key}:${snapshot ?? ""}`);
+    setRuns((all) => ({ ...all, [key]: { pending: true, error: null } }));
+    const finish = (next: SummaryRun) => {
+      running.current.delete(key);
+      setRuns((all) => ({ ...all, [key]: next }));
+    };
+    const queryKey = summaryQueryKey(accountEmail, threadId);
+    void (
+      callAction("summarize-thread", { accountEmail, threadId }) as Promise<{
+        summary: ConversationSummary;
+        cached: boolean;
+      }>
+    ).then(
+      async ({ summary: fresh }) => {
+        await qc.cancelQueries({ queryKey });
+        qc.setQueryData<StoredSummary>(queryKey, { summary: fresh });
+        finish({ pending: false, error: null });
+      },
+      (failure: unknown) => finish({ pending: false, error: failure }),
     );
-    mutate({ accountEmail, threadId });
-  }, [accountEmail, threadId, latestId, mutate]);
+  }, [accountEmail, threadId, snapshot, qc]);
 
   useEffect(() => {
     if (!open || !stale || pending) return;
-    if (attempted.current.has(`${id}:${latestId}`)) return;
+    if (attempted.current.has(`${id}:${snapshot}`)) return;
     start();
-  }, [id, latestId, open, pending, stale, start]);
+  }, [id, snapshot, open, pending, stale, start]);
 
   const toggle = useCallback(() => {
     if (!id) return;

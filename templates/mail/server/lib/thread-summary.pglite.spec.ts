@@ -186,6 +186,29 @@ describe("summarizeThread (PGlite)", () => {
     ]);
   });
 
+  it("refreshes for a message that arrives dated before the newest one", async () => {
+    mocks.completeText.mockResolvedValueOnce(
+      modelReply("Launch moves to Friday.", []),
+    );
+    await summarize([message("m1", 1), message("m3", 3)]);
+    mocks.completeText.mockResolvedValueOnce(
+      modelReply("Launch moves to Friday, and Bo agreed.", []),
+    );
+
+    const late = await summarize([
+      message("m1", 1),
+      message("m2", 2),
+      message("m3", 3),
+    ]);
+
+    expect(late).toMatchObject({
+      ok: true,
+      cached: false,
+      summary: { lastMessageId: "m3", messageCount: 3 },
+    });
+    expect(mocks.completeText).toHaveBeenCalledTimes(2);
+  });
+
   it("reads null for a thread nobody summarized", async () => {
     expect(
       await summaries.readThreadSummary(OWNER, ACCOUNT, "never"),

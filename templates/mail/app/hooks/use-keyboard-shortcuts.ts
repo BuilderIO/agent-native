@@ -88,6 +88,8 @@ export function isMailSearchActive(): boolean {
   return Boolean(search?.value || document.activeElement === search);
 }
 
+let sequenceNextKeys = new Set<string>();
+
 interface Shortcut {
   key: string;
   meta?: boolean;
@@ -107,6 +109,14 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
     (e: KeyboardEvent) => {
       if (!enabled) return;
       if (e.defaultPrevented) return;
+      if (
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        sequenceNextKeys.has(e.key.toLowerCase())
+      ) {
+        return;
+      }
 
       for (const shortcut of shortcutsRef.current) {
         if (shortcut.skipInInput !== false) {
@@ -167,13 +177,25 @@ export function useSequenceShortcuts(
             e.preventDefault();
             seq.handler();
             bufferRef.current = [];
+            sequenceNextKeys = new Set();
             return;
           }
         }
       }
 
+      const next = new Set<string>();
+      for (const { keys } of sequencesRef.current) {
+        for (const [length, key] of keys.entries()) {
+          if (length === 0 || length > bufferRef.current.length) continue;
+          const tail = bufferRef.current.slice(-length);
+          if (tail.every((k, i) => k === keys[i])) next.add(key);
+        }
+      }
+      sequenceNextKeys = next;
+
       timerRef.current = setTimeout(() => {
         bufferRef.current = [];
+        sequenceNextKeys = new Set();
       }, 1000);
     };
 
@@ -182,6 +204,7 @@ export function useSequenceShortcuts(
       window.removeEventListener("keydown", handleKey);
       clearTimeout(timerRef.current);
       bufferRef.current = [];
+      sequenceNextKeys = new Set();
     };
   }, [enabled]);
 }

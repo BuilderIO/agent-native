@@ -7,12 +7,12 @@ vi.mock("./automation-model.js", () => ({
   resolveTextAutomationModelSettings: vi.fn(),
 }));
 
+import { summaryMessages } from "../../shared/thread-summary.js";
 import type { EmailMessage } from "../../shared/types.js";
 import {
   buildSummaryInput,
   messageText,
   parseSummaryReply,
-  summaryMessages,
 } from "./thread-summary.js";
 
 function message(overrides: Partial<EmailMessage>): EmailMessage {
@@ -122,6 +122,12 @@ describe("parseSummaryReply", () => {
       { ok: false },
     );
     expect(parseSummaryReply('{"line": ""}')).toMatchObject({ ok: false });
+    expect(parseSummaryReply('{"line": "Launch moved."}')).toMatchObject({
+      ok: false,
+    });
+    expect(
+      parseSummaryReply('{"line": "Launch moved.", "points": []}'),
+    ).toEqual({ ok: true, line: "Launch moved.", points: [] });
     expect(parseSummaryReply('{"points": ["x"]}')).toMatchObject({
       ok: false,
     });

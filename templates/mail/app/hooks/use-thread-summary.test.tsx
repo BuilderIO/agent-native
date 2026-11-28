@@ -68,6 +68,8 @@ function summarizeCalls() {
   ).length;
 }
 
+type PanelProps = { messages: EmailMessage[]; threadId?: string };
+
 function renderPanel(threadId: string, messages: EmailMessage[]) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -75,15 +77,16 @@ function renderPanel(threadId: string, messages: EmailMessage[]) {
   const wrapper = ({ children }: PropsWithChildren) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
+  const initialProps: PanelProps = { messages };
   return renderHook(
-    (props: { messages: EmailMessage[] }) =>
+    (props: PanelProps) =>
       useThreadSummaryPanel({
         accountEmail: "me@example.com",
-        threadId,
+        threadId: props.threadId ?? threadId,
         threadMessages: props.messages,
         messagesSettled: true,
       }),
-    { wrapper, initialProps: { messages } },
+    { wrapper, initialProps },
   );
 }
 
@@ -130,6 +133,41 @@ describe("useThreadSummaryPanel", () => {
       messages: [message("m1", 1), message("m2", 2), message("m3", 3)],
     });
     await waitFor(() => expect(summarizeCalls()).toBe(2));
+  });
+
+  it("keeps each thread's run while another thread is summarized", async () => {
+    const releases: Array<() => void> = [];
+    mocks.callAction.mockImplementation(
+      (name: string, input: { threadId: string }) => {
+        if (name === "get-thread-summary") {
+          return Promise.resolve({ summary: null });
+        }
+        return new Promise((resolve) => {
+          releases.push(() =>
+            resolve({ summary: summary(input.threadId, "m1"), cached: false }),
+          );
+        });
+      },
+    );
+    const messages = [message("m1", 1)];
+    const { result, rerender } = renderPanel("t-a", messages);
+    act(() => result.current.toggle());
+    expect(result.current.pending).toBe(true);
+
+    rerender({ messages, threadId: "t-b" });
+    expect(result.current.pending).toBe(false);
+    act(() => result.current.toggle());
+    expect(result.current.pending).toBe(true);
+
+    rerender({ messages, threadId: "t-a" });
+    expect(result.current.pending).toBe(true);
+    act(() => result.current.toggle());
+    act(() => result.current.toggle());
+    expect(summarizeCalls()).toBe(2);
+
+    await act(async () => releases[0]?.());
+    await waitFor(() => expect(result.current.summary?.threadId).toBe("t-a"));
+    expect(result.current.pending).toBe(false);
   });
 
   it("keeps a hidden summary hidden, and shows it again without a model call", async () => {
