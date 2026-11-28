@@ -6,11 +6,13 @@ import type {
   DocumentProperty,
 } from "../shared/api";
 import {
+  documentContentPreview,
+  SCREEN_DOCUMENT_PREVIEW_CHARS,
+} from "../shared/screen-document-preview";
+import {
   buildSelectionScreenSection,
   databaseCurrentViewSnapshot,
-  documentContentPreview,
   serializeDocumentTreeItemForScreen,
-  SCREEN_DOCUMENT_PREVIEW_CHARS,
 } from "./view-screen";
 
 describe("buildSelectionScreenSection", () => {

@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { agentContextMessagesByLocale } from "./agent-context-messages";
 import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
 import { builderAutosaveMessagesByLocale } from "./builder-autosave-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
@@ -2591,6 +2592,7 @@ const enUS = {
   pageChecks: pageCheckMessagesByLocale["en-US"],
   designScreen: designScreenMessagesByLocale["en-US"],
   builderAutosave: builderAutosaveMessagesByLocale["en-US"],
+  agentContext: agentContextMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2661,6 +2663,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     pageChecks: enUS.pageChecks,
     designScreen: enUS.designScreen,
     builderAutosave: enUS.builderAutosave,
+    agentContext: enUS.agentContext,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -3189,6 +3192,7 @@ function mergeMessagesForLocale(
     pageChecks: pageCheckMessagesByLocale[locale],
     designScreen: designScreenMessagesByLocale[locale],
     builderAutosave: builderAutosaveMessagesByLocale[locale],
+    agentContext: agentContextMessagesByLocale[locale],
   };
 }
 

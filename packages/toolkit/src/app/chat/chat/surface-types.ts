@@ -143,6 +143,9 @@ export type AssistantChatThreadFooterSlot =
       tabId: string | null;
     }) => React.ReactNode);
 
+/** Key of the composer item that names the resource a scoped chat is open on. */
+export const AGENT_RESOURCE_CONTEXT_KEY = "agent-current-resource-context";
+
 export type AssistantChatSuggestionVisibility =
   | "always"
   | "after-agent-response";
@@ -322,6 +325,8 @@ export interface AssistantChatProps {
   ) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  /** Optional row rendered inside the message box, above its context chips. */
+  composerHeaderSlot?: React.ReactNode;
   composerProviderSetupSlot?: React.ReactNode;
   admitComposerMessage?: (input: {
     text: string;

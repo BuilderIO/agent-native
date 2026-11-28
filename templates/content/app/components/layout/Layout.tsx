@@ -10,6 +10,7 @@ import {
 } from "@agent-native/toolkit/app-shell";
 import { AgentSidebar } from "@agent-native/toolkit/app/chat/AgentSidebar";
 import type { AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { AGENT_RESOURCE_CONTEXT_KEY } from "@agent-native/toolkit/app/chat/chat/surface-types";
 import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import type { Document } from "@shared/api";
 import { IconMenu2 } from "@tabler/icons-react";
@@ -55,6 +56,7 @@ import {
 } from "@/lib/page-startup-hints";
 
 import { AgentPanelHostProvider, useAgentPanelHost } from "./agent-panel-host";
+import { AgentContextLine } from "./AgentContextLine";
 import { Header } from "./Header";
 import { isContentSettingsRoute } from "./settings-route-policy";
 import {
@@ -120,6 +122,8 @@ function PendingDocumentTransition({
     />
   );
 }
+
+const HIDDEN_COMPOSER_CONTEXT_KEYS = [AGENT_RESOURCE_CONTEXT_KEY];
 
 interface LayoutProps {
   children: ReactNode;
@@ -501,6 +505,14 @@ export function Layout({ children }: LayoutProps) {
                 creativeContextEnabled ? (
                   <CreativeContextComposerChip />
                 ) : undefined
+              }
+              composerHeaderSlot={
+                activeDocumentId ? (
+                  <AgentContextLine documentId={activeDocumentId} />
+                ) : undefined
+              }
+              hiddenComposerContextItemKeys={
+                activeDocumentId ? HIDDEN_COMPOSER_CONTEXT_KEYS : undefined
               }
             >
               <ContentLayoutContext.Provider value={shellLayout}>

@@ -2,6 +2,7 @@
 
 import { AgentKitClient as AgentKitClientImplementation } from "@agent-native/agentkit/client";
 import type { AgentTransport } from "@agent-native/agentkit/protocol";
+import type { AgentChatContextItem } from "@agent-native/core/client/agent-chat";
 import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
@@ -19,7 +20,9 @@ class AgentKitClient extends AgentKitClientImplementation {
   }
 }
 
-async function renderEditableThread() {
+async function renderEditableThread(
+  hiddenContextItems: AgentChatContextItem[] = [],
+) {
   const composerRef = createRef<TiptapComposerHandle>();
   const startRun = vi.fn(async () => ({ runId: "run-edit" }));
   const onThreadForked = vi.fn();
@@ -78,6 +81,7 @@ async function renderEditableThread() {
               autoFocus: false,
               modelStatusChecksEnabled: false,
               composerRef,
+              hiddenContextItems,
             }}
           />
         </AgentKitProvider>
@@ -170,6 +174,34 @@ describe("AgentKit message editing", () => {
       await act(async () => resolveRun({ runId: "run-edit" }));
       expect(onThreadForked).toHaveBeenCalledWith(
         expect.objectContaining({ id: "thread-edit-fork" }),
+      );
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("keeps hidden context items on an edited message", async () => {
+    const { container, startEditing, cleanup, startRun, composerRef } =
+      await renderEditableThread([
+        {
+          key: "agent-current-resource-context",
+          title: "Document",
+          context: "Resource context: document:doc-1",
+        },
+      ]);
+    try {
+      await startEditing();
+      await act(async () => composerRef.current?.setText("Edited request"));
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-agent-composer-slot="send-button"]',
+          )
+          ?.click();
+      });
+      await vi.waitFor(() => expect(startRun).toHaveBeenCalledOnce());
+      expect(JSON.stringify(startRun.mock.calls[0])).toContain(
+        "Resource context: document:doc-1",
       );
     } finally {
       await cleanup();

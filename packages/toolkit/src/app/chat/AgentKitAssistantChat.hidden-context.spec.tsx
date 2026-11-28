@@ -5,12 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   composerContextFits,
+  mergeHiddenComposerContextItems,
   snapshotComposerContextItems,
 } from "../../composer/context-items.js";
-import {
-  mergeHiddenComposerContextItems,
-  partitionComposerContextItemsForComposer,
-} from "./AgentKitAssistantChat.js";
+import { partitionComposerContextItemsForComposer } from "./AgentKitAssistantChat.js";
 
 const NAMESPACE = "analytics-app:org:qa-workspace";
 const THREAD_ID = "thread-1";
