@@ -43,20 +43,122 @@ pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
             .unwrap_or(false)
 }
 
+/// Call apps that also capture audio outside calls (voice and video
+/// messages). A call in these apps both captures and plays audio.
+const DUPLEX_CALL_APP_BUNDLE_IDS: &[&str] = &["com.tinyspeck.slackmacgap"];
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn is_duplex_call_app(bundle_id: &str) -> bool {
+    DUPLEX_CALL_APP_BUNDLE_IDS
+        .iter()
+        .any(|candidate| bundle_id_matches(bundle_id, candidate))
+}
+
+/// Which per-process audio signals count as "the app is in a call".
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioRule {
+    /// The microphone is running.
+    Input,
+    /// Microphone and playback run together (call start for duplex apps).
+    InputAndOutput,
+    /// Microphone or playback runs (call still going for duplex apps: a
+    /// muted participant releases the mic while remote audio keeps playing).
+    InputOrOutput,
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
-    call_matching_process_microphone(bundle_ids, None)
+    call_matching_process_microphone(bundle_ids, None, AudioRule::Input)
+}
+
+/// Whether a call that is already being recorded is still going. Duplex apps
+/// (Slack) stay in the call while they capture or play audio, so muting in a
+/// huddle does not end it; other apps end when the microphone is released.
+#[cfg(target_os = "macos")]
+pub(crate) fn call_app_still_in_call(bundle_ids: &[String]) -> Option<bool> {
+    let (duplex, mic_only): (Vec<String>, Vec<String>) = bundle_ids
+        .iter()
+        .cloned()
+        .partition(|bundle_id| is_duplex_call_app(bundle_id));
+    let duplex_state = (!duplex.is_empty())
+        .then(|| call_matching_process_microphone(&duplex, None, AudioRule::InputOrOutput));
+    let mic_state = (!mic_only.is_empty())
+        .then(|| call_matching_process_microphone(&mic_only, None, AudioRule::Input));
+    combine_call_states(duplex_state, mic_state)
+}
+
+/// Joins the states of two app groups: any live group keeps the call going.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn combine_call_states(
+    a: Option<Option<bool>>,
+    b: Option<Option<bool>>,
+) -> Option<bool> {
+    let states: Vec<Option<bool>> = [a, b].into_iter().flatten().collect();
+    if states.contains(&Some(true)) {
+        return Some(true);
+    }
+    if states.is_empty() || states.contains(&None) {
+        return None;
+    }
+    Some(false)
+}
+
+/// Like [`call_app_uses_microphone`], but only reports a call while the app
+/// both captures and plays audio. Apps that also record voice or video
+/// messages (Slack) capture without playing; a live call does both.
+#[cfg(target_os = "macos")]
+pub(crate) fn call_app_uses_duplex_audio(bundle_ids: &[String]) -> Option<bool> {
+    call_matching_process_microphone(bundle_ids, None, AudioRule::InputAndOutput)
 }
 
 #[cfg(target_os = "macos")]
 pub(crate) fn call_process_uses_microphone(pid: i32, bundle_id: &str) -> Option<bool> {
-    call_matching_process_microphone(&[bundle_id.to_string()], Some(pid))
+    call_matching_process_microphone(&[bundle_id.to_string()], Some(pid), AudioRule::Input)
+}
+
+/// Combines per-process audio states for apps that must capture and play at
+/// once. Input and output may run in different helper processes, so each
+/// side is judged across all matching processes.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn duplex_audio_state(
+    any_input: bool,
+    any_output: bool,
+    input_unreadable: bool,
+    output_unreadable: bool,
+) -> Option<bool> {
+    if any_input && any_output {
+        return Some(true);
+    }
+    if (!any_input && input_unreadable) || (!any_output && output_unreadable) {
+        return None;
+    }
+    Some(false)
+}
+
+/// Combines per-process audio states for a call that is already running:
+/// either side keeps it alive.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn either_audio_state(
+    any_input: bool,
+    any_output: bool,
+    input_unreadable: bool,
+    output_unreadable: bool,
+) -> Option<bool> {
+    if any_input || any_output {
+        return Some(true);
+    }
+    if input_unreadable || output_unreadable {
+        return None;
+    }
+    Some(false)
 }
 
 #[cfg(target_os = "macos")]
 fn call_matching_process_microphone(
     bundle_ids: &[String],
     expected_pid: Option<i32>,
+    rule: AudioRule,
 ) -> Option<bool> {
     use core_foundation::base::TCFType;
     use core_foundation::string::CFString;
@@ -64,8 +166,8 @@ fn call_matching_process_microphone(
         kAudioHardwareNoError, kAudioHardwarePropertyProcessObjectList,
         kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
         kAudioProcessPropertyBundleID, kAudioProcessPropertyIsRunningInput,
-        kAudioProcessPropertyPID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize,
-        AudioObjectID, AudioObjectPropertyAddress,
+        kAudioProcessPropertyIsRunningOutput, kAudioProcessPropertyPID, AudioObjectGetPropertyData,
+        AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
     };
     use std::ffi::c_void;
     use std::mem::size_of;
@@ -115,6 +217,9 @@ fn call_matching_process_microphone(
     let mut unreadable_target_bundle = false;
     let mut unreadable_input = false;
     let mut matched_bundle = false;
+    let mut any_input = false;
+    let mut any_output = false;
+    let mut unreadable_output = false;
 
     for process in processes {
         if let Some(expected_pid) = expected_pid {
@@ -199,11 +304,47 @@ fn call_matching_process_microphone(
         };
         if input_status != kAudioHardwareNoError {
             unreadable_input = true;
-            continue;
+        } else if input_running != 0 {
+            if rule == AudioRule::Input {
+                return Some(true);
+            }
+            any_input = true;
         }
-        if input_running != 0 {
-            return Some(true);
+
+        if rule != AudioRule::Input {
+            let mut output_address = AudioObjectPropertyAddress {
+                mSelector: kAudioProcessPropertyIsRunningOutput,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain,
+            };
+            let mut output_running: u32 = 0;
+            let mut output_size = size_of::<u32>() as u32;
+            let output_status = unsafe {
+                AudioObjectGetPropertyData(
+                    process,
+                    NonNull::from(&mut output_address),
+                    0,
+                    std::ptr::null(),
+                    NonNull::from(&mut output_size),
+                    NonNull::new((&mut output_running as *mut u32).cast::<c_void>())?,
+                )
+            };
+            if output_status != kAudioHardwareNoError {
+                unreadable_output = true;
+            } else if output_running != 0 {
+                any_output = true;
+            }
         }
+    }
+
+    match rule {
+        AudioRule::InputAndOutput => {
+            return duplex_audio_state(any_input, any_output, unreadable_input, unreadable_output);
+        }
+        AudioRule::InputOrOutput => {
+            return either_audio_state(any_input, any_output, unreadable_input, unreadable_output);
+        }
+        AudioRule::Input => {}
     }
 
     if expected_pid.is_some()
@@ -221,7 +362,80 @@ fn call_matching_process_microphone(
 
 #[cfg(test)]
 mod tests {
-    use super::{bundle_id_matches, supported_browser_bundle_id, BROWSER_CALL_APP_BUNDLE_IDS};
+    use super::{
+        bundle_id_matches, combine_call_states, duplex_audio_state, either_audio_state,
+        is_duplex_call_app, supported_browser_bundle_id, BROWSER_CALL_APP_BUNDLE_IDS,
+    };
+
+    #[test]
+    fn muting_in_a_huddle_keeps_the_call_going() {
+        // Muted: Slack releases the mic but keeps playing remote audio.
+        assert_eq!(either_audio_state(false, true, false, false), Some(true));
+        // Talking: both run.
+        assert_eq!(either_audio_state(true, true, false, false), Some(true));
+        // Left the huddle: neither runs.
+        assert_eq!(either_audio_state(false, false, false, false), Some(false));
+        // Nothing readable and nothing live: unknown, never "ended".
+        assert_eq!(either_audio_state(false, false, false, true), None);
+        assert_eq!(either_audio_state(false, false, true, false), None);
+    }
+
+    #[test]
+    fn only_slack_is_a_duplex_call_app() {
+        assert!(is_duplex_call_app("com.tinyspeck.slackmacgap"));
+        assert!(is_duplex_call_app("com.tinyspeck.slackmacgap.helper"));
+        assert!(!is_duplex_call_app("us.zoom.xos"));
+        assert!(!is_duplex_call_app("com.microsoft.teams2"));
+        assert!(!is_duplex_call_app("com.google.chrome"));
+    }
+
+    #[test]
+    fn call_states_of_app_groups_combine() {
+        assert_eq!(combine_call_states(Some(Some(true)), None), Some(true));
+        assert_eq!(combine_call_states(Some(Some(false)), None), Some(false));
+        assert_eq!(combine_call_states(None, Some(None)), None);
+        assert_eq!(
+            combine_call_states(Some(Some(false)), Some(Some(true))),
+            Some(true)
+        );
+        assert_eq!(combine_call_states(Some(Some(false)), Some(None)), None);
+        assert_eq!(combine_call_states(None, None), None);
+    }
+
+    #[test]
+    fn slack_helpers_match_the_slack_bundle() {
+        assert!(bundle_id_matches(
+            "com.tinyspeck.slackmacgap.helper",
+            "com.tinyspeck.slackmacgap"
+        ));
+        assert!(bundle_id_matches(
+            "com.tinyspeck.slackmacgap",
+            "com.tinyspeck.slackmacgap"
+        ));
+        assert!(!bundle_id_matches(
+            "com.tinyspeck.slackmacgapx",
+            "com.tinyspeck.slackmacgap"
+        ));
+    }
+
+    #[test]
+    fn duplex_audio_needs_capture_and_playback() {
+        assert_eq!(duplex_audio_state(true, true, false, false), Some(true));
+        assert_eq!(
+            duplex_audio_state(true, false, false, false),
+            Some(false),
+            "recording a voice message captures without playing"
+        );
+        assert_eq!(duplex_audio_state(false, true, false, false), Some(false));
+        assert_eq!(duplex_audio_state(false, false, false, false), Some(false));
+        assert_eq!(duplex_audio_state(true, false, false, true), None);
+        assert_eq!(duplex_audio_state(false, true, true, false), None);
+        assert_eq!(
+            duplex_audio_state(true, true, true, true),
+            Some(true),
+            "a readable live pair wins over another unreadable helper"
+        );
+    }
 
     #[test]
     fn matches_native_helpers_but_only_exact_browser_processes() {

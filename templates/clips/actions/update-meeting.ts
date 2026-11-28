@@ -24,7 +24,16 @@ export default defineAction({
     actualStart: z.string().nullish(),
     actualEnd: z.string().nullish(),
     platform: z
-      .enum(["zoom", "meet", "teams", "webex", "phone", "adhoc", "other"])
+      .enum([
+        "zoom",
+        "meet",
+        "teams",
+        "webex",
+        "slack",
+        "phone",
+        "adhoc",
+        "other",
+      ])
       .optional(),
     joinUrl: z.string().nullish(),
     userNotesMd: z.string().optional(),

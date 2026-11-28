@@ -7,6 +7,8 @@ const NATIVE_CALL_APP_BUNDLE_IDS = [
   "com.microsoft.teams",
 ] as const;
 
+const SLACK_CALL_APP_BUNDLE_IDS = ["com.tinyspeck.slackmacgap"] as const;
+
 const BROWSER_CALL_APP_BUNDLE_IDS = [
   "com.google.Chrome",
   "company.thebrowser.Browser",
@@ -25,6 +27,8 @@ export function callAppBundleIdsForJoinUrl(
   if (exactBrowserBundleId) return [exactBrowserBundleId];
 
   const normalizedPlatform = platform?.toLowerCase();
+  // Slack huddles have no join URL; only Slack's own processes carry the call.
+  if (normalizedPlatform === "slack") return [...SLACK_CALL_APP_BUNDLE_IDS];
   if (!joinUrl) {
     if (normalizedPlatform === "meet" || normalizedPlatform === "webex") {
       return [...BROWSER_CALL_APP_BUNDLE_IDS];

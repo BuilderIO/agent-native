@@ -9,6 +9,15 @@ describe("callAppBundleIdsForJoinUrl", () => {
     ).toContain("com.google.Chrome");
   });
 
+  it("watches only Slack for a Slack huddle", () => {
+    expect(callAppBundleIdsForJoinUrl(undefined, "slack")).toEqual([
+      "com.tinyspeck.slackmacgap",
+    ]);
+    expect(callAppBundleIdsForJoinUrl(null, "Slack")).toEqual([
+      "com.tinyspeck.slackmacgap",
+    ]);
+  });
+
   it("watches browser microphone activity for Webex", () => {
     expect(
       callAppBundleIdsForJoinUrl("https://customer.webex.com/meet/abc"),
