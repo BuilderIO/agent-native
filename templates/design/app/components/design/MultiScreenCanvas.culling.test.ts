@@ -15,9 +15,12 @@ import {
   OVERVIEW_IFRAME_INSTANT_ADMISSION_MAX,
   OVERVIEW_LIVE_IFRAME_CEILING,
   OVERVIEW_LIVE_BOOT_BUDGET,
+  OVERVIEW_LIVE_BOARD_TOTAL_CONTENT_BYTES,
   OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX,
   OVERVIEW_LIVE_SCREEN_BUDGET,
+  OVERVIEW_LIVE_SCREEN_HEAVY_CONTENT_BYTES,
   orderByViewportDistance,
+  requiresOverviewLevelOfDetail,
   resolveLiveEditorScreenIds,
   selectStaticPreviewScreenIds,
   type ScreenCullCandidate,
@@ -1074,5 +1077,60 @@ describe("progressive iframe admission", () => {
       perFrame: 1,
     });
     expect([...next]).toEqual(["s0", "s1", "s19"]);
+  });
+});
+
+describe("requiresOverviewLevelOfDetail", () => {
+  it("stays off for small light boards and single heavy screens", () => {
+    expect(
+      requiresOverviewLevelOfDetail(
+        Array.from({ length: 10 }, () => ({
+          content: "<div>light</div>",
+          contentBytes: 4_000,
+        })),
+      ),
+    ).toBe(false);
+    expect(
+      requiresOverviewLevelOfDetail([
+        {
+          content: "",
+          contentBytes: OVERVIEW_LIVE_BOARD_TOTAL_CONTENT_BYTES * 2,
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("activates for dense multi-screen boards from contentBytes metadata before hydration", () => {
+    const dense10 = Array.from({ length: 10 }, () => ({
+      content: "",
+      contentBytes: 425_000,
+    }));
+    expect(requiresOverviewLevelOfDetail(dense10)).toBe(true);
+
+    const twoHeavy = [
+      { content: "", contentBytes: OVERVIEW_LIVE_SCREEN_HEAVY_CONTENT_BYTES },
+      { content: "", contentBytes: 2_000 },
+    ];
+    expect(requiresOverviewLevelOfDetail(twoHeavy)).toBe(true);
+
+    const mediumTotalOver1MB = Array.from({ length: 10 }, () => ({
+      content: "",
+      contentBytes: 120_000,
+    }));
+    expect(requiresOverviewLevelOfDetail(mediumTotalOver1MB)).toBe(true);
+  });
+
+  it("activates from hydrated content length or screen count above the live budget", () => {
+    const hydratedHeavy = [
+      { content: "x".repeat(OVERVIEW_LIVE_SCREEN_HEAVY_CONTENT_BYTES) },
+      { content: "<div>small</div>" },
+    ];
+    expect(requiresOverviewLevelOfDetail(hydratedHeavy)).toBe(true);
+
+    const manyLight = Array.from(
+      { length: OVERVIEW_LIVE_SCREEN_BUDGET + 1 },
+      () => ({ content: "<div>small</div>", contentBytes: 16 }),
+    );
+    expect(requiresOverviewLevelOfDetail(manyLight)).toBe(true);
   });
 });

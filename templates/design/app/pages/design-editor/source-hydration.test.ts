@@ -7,7 +7,12 @@ import { describe, expect, it, vi } from "vitest";
 const callAction = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/hooks", () => ({ callAction }));
 
-import { eagerSourceIds, SourceHydration } from "./source-hydration";
+import {
+  EAGER_SOURCE_MAX_BYTES,
+  EAGER_SOURCE_MAX_FILE_BYTES,
+  eagerSourceIds,
+  SourceHydration,
+} from "./source-hydration";
 import { useDesignSourceHydration } from "./use-design-source-hydration";
 
 describe("SourceHydration", () => {
@@ -637,6 +642,31 @@ describe("eagerSourceIds", () => {
         })),
       ),
     ).toEqual([]);
+  });
+
+  it("defers dense boards to on-demand hydration when total or single-screen bytes exceed eager caps", () => {
+    const dense10 = Array.from({ length: 10 }, (_, i) => ({
+      id: `s-${i}`,
+      contentBytes: Math.ceil(EAGER_SOURCE_MAX_BYTES / 10) + 1,
+    }));
+    expect(eagerSourceIds(dense10)).toEqual([]);
+
+    const singleDenseScreen = [
+      { id: "heavy", contentBytes: EAGER_SOURCE_MAX_FILE_BYTES + 1 },
+      { id: "light", contentBytes: 1024 },
+    ];
+    expect(eagerSourceIds(singleDenseScreen)).toEqual([]);
+
+    const withinCaps = Array.from({ length: 4 }, (_, i) => ({
+      id: `ok-${i}`,
+      contentBytes: EAGER_SOURCE_MAX_FILE_BYTES,
+    }));
+    expect(eagerSourceIds(withinCaps)).toEqual([
+      "ok-0",
+      "ok-1",
+      "ok-2",
+      "ok-3",
+    ]);
   });
 });
 

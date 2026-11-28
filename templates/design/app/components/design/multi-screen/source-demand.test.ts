@@ -212,6 +212,24 @@ describe("source demand", () => {
     expect(demand(3500)).toEqual(demand(3300));
   });
 
+  it("ranks on-screen live candidates ahead of off-screen live candidates", () => {
+    const frames = [
+      { id: "off-0", geometry: { x: -5000, y: 0, width: 1440, height: 900 } },
+      { id: "off-1", geometry: { x: 8000, y: 0, width: 1440, height: 900 } },
+      { id: "on-0", geometry: { x: 0, y: 0, width: 1440, height: 900 } },
+      { id: "on-1", geometry: { x: 1600, y: 0, width: 1440, height: 900 } },
+    ];
+    const { pinned } = selectSourceDemand({
+      frames,
+      liveIds: new Set(["off-0", "off-1", "on-0", "on-1"]),
+      protectedIds: new Set(),
+      zoom: 1,
+      viewport: { left: 0, top: 0, right: 3200, bottom: 1000 },
+    });
+    expect(pinned.slice(0, 2)).toEqual(["on-0", "on-1"]);
+    expect(pinned.slice(2)).toEqual(["off-0", "off-1"]);
+  });
+
   it("previews nothing without a viewport", () => {
     expect(
       selectSourceDemand({

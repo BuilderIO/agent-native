@@ -26,6 +26,7 @@ import {
 } from "@shared/canvas-math";
 import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
+import { memoizeByContent } from "@shared/memoize-by-content";
 import {
   decodeMotionPrototypeTransitionAttribute,
   type MotionPrototypeTransitionDecodeResult,
@@ -1245,67 +1246,85 @@ function sourceHeadInnerHtml(html: string): string {
   return /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
 }
 
-function initialSourceOwnershipJson(html: string): string {
-  if (typeof DOMParser === "undefined") return "";
-  try {
-    const body = new DOMParser().parseFromString(html, "text/html").body;
-    const sourceNodeIds = new Map<string, number>();
-    const keyedNodes = new Map<
-      string,
-      {
-        tagName: string;
-        meta: { attrs: string[]; className: string; style: string };
+const initialSourceOwnershipJson = memoizeByContent(
+  32,
+  (html: string): string => {
+    if (typeof DOMParser === "undefined") return "";
+    try {
+      const body = new DOMParser().parseFromString(html, "text/html").body;
+      const bodyMeta = {
+        attrs: Array.from(body.attributes, (attribute) => attribute.name),
+        className: body.getAttribute("class") ?? "",
+        style: body.getAttribute("style") ?? "",
+      };
+      if (!html.includes("data-agent-native-node-id")) {
+        return JSON.stringify({
+          body: bodyMeta,
+          sourceNodeIds: [],
+          nodes: [],
+        });
       }
-    >();
-    const sourceElements: Element[] = [];
-    const collectSourceElements = (node: Node) => {
-      if (node.nodeType !== 1) return;
-      const element = node as Element;
-      sourceElements.push(element);
-      const templateContent =
-        element.tagName === "TEMPLATE"
-          ? (element as HTMLTemplateElement).content
-          : null;
-      const children = templateContent?.childNodes ?? element.childNodes;
-      Array.from(children).forEach(collectSourceElements);
-    };
-    collectSourceElements(body);
-    sourceElements.forEach((element) => {
-      const nodeId = element.getAttribute("data-agent-native-node-id") ?? "";
-      if (!nodeId) return;
-      sourceNodeIds.set(nodeId, (sourceNodeIds.get(nodeId) ?? 0) + 1);
-    });
-    sourceElements.forEach((element) => {
-      const nodeId = element.getAttribute("data-agent-native-node-id") ?? "";
-      if (!nodeId || element === body || sourceNodeIds.get(nodeId) !== 1)
-        return;
-      keyedNodes.set(nodeId, {
-        tagName: element.tagName.toLowerCase(),
-        meta: {
-          attrs: Array.from(element.attributes, (attribute) => attribute.name),
-          className: element.getAttribute("class") ?? "",
-          style: element.getAttribute("style") ?? "",
-        },
+      const sourceNodeIds = new Map<string, number>();
+      const keyedNodes = new Map<
+        string,
+        {
+          tagName: string;
+          meta: { attrs: string[]; className: string; style: string };
+        }
+      >();
+      const stack: Node[] = [body];
+      while (stack.length > 0) {
+        const node = stack.pop();
+        if (!node || node.nodeType !== 1) continue;
+        const element = node as Element;
+        const nodeId = element.getAttribute("data-agent-native-node-id") ?? "";
+        if (nodeId) {
+          const nextCount = (sourceNodeIds.get(nodeId) ?? 0) + 1;
+          sourceNodeIds.set(nodeId, nextCount);
+          if (element !== body) {
+            if (nextCount === 1) {
+              keyedNodes.set(nodeId, {
+                tagName: element.tagName.toLowerCase(),
+                meta: {
+                  attrs: Array.from(
+                    element.attributes,
+                    (attribute) => attribute.name,
+                  ),
+                  className: element.getAttribute("class") ?? "",
+                  style: element.getAttribute("style") ?? "",
+                },
+              });
+            } else {
+              keyedNodes.delete(nodeId);
+            }
+          }
+        }
+        const childParent =
+          element.tagName === "TEMPLATE"
+            ? (element as HTMLTemplateElement).content
+            : element;
+        for (
+          let child = childParent.lastChild;
+          child;
+          child = child.previousSibling
+        ) {
+          stack.push(child);
+        }
+      }
+      return JSON.stringify({
+        body: bodyMeta,
+        sourceNodeIds: Array.from(sourceNodeIds.keys()),
+        nodes: Array.from(keyedNodes, ([nodeId, node]) => ({
+          nodeId,
+          ...node,
+        })),
       });
-    });
-    const bodyMeta = {
-      attrs: Array.from(body.attributes, (attribute) => attribute.name),
-      className: body.getAttribute("class") ?? "",
-      style: body.getAttribute("style") ?? "",
-    };
-    return JSON.stringify({
-      body: bodyMeta,
-      sourceNodeIds: Array.from(sourceNodeIds.keys()),
-      nodes: Array.from(keyedNodes, ([nodeId, node]) => ({
-        nodeId,
-        ...node,
-      })),
-    });
-  } catch {
-    console.warn("Design could not capture initial source ownership");
-    return "";
-  }
-}
+    } catch {
+      console.warn("Design could not capture initial source ownership");
+      return "";
+    }
+  },
+);
 
 const NO_SELECTORS = Object.freeze([]) as unknown as string[];
 const NO_SELECTOR_GROUPS = Object.freeze([]) as unknown as string[][];

@@ -123,6 +123,29 @@ describe("deriveOverviewScreens", () => {
     expect(screens[1]?.activeBreakpointWidth).toBe(390);
   });
 
+  it("forwards contentBytes and filters invalid or duplicate breakpoint widths", () => {
+    const screens = deriveOverviewScreens({
+      ...base,
+      designDataJson: {
+        breakpointSet: {
+          id: "s",
+          breakpoints: [
+            { id: "m", widthPx: 390 },
+            { id: "dup", widthPx: 390 },
+            { id: "bad-zero", widthPx: 0 },
+            { id: "bad-neg", widthPx: -120 },
+            { id: "   ", widthPx: 768 },
+            { id: "t", widthPx: 810 },
+          ],
+        },
+      },
+      files: [file({ id: "a", contentBytes: 425_000 })],
+    });
+    expect(screens).toHaveLength(1);
+    expect(screens[0]?.contentBytes).toBe(425_000);
+    expect(screens[0]?.breakpointWidths).toEqual([390, 810]);
+  });
+
   it("only reports an active breakpoint width that exists in the set", () => {
     const args = {
       ...base,

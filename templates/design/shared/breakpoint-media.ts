@@ -1,3 +1,4 @@
+import { memoizeByContent } from "./memoize-by-content.js";
 import {
   breakpointUpperBoundPx,
   maxWidthOverridesForStem,
@@ -99,6 +100,7 @@ export function isSafeBreakpointCssProperty(property: string): boolean {
 const OPEN_RE = /<style\b(?=[^>]*\bdata-agent-native-breakpoints\b)[^>]*>/i;
 
 export function extractManagedBreakpointCss(html: string): string | null {
+  if (!html.includes("data-agent-native-breakpoints")) return null;
   const openMatch = OPEN_RE.exec(html);
   if (!openMatch) return null;
   const bodyStart = openMatch.index + openMatch[0].length;
@@ -279,13 +281,21 @@ export function removeBreakpointMediaDeclaration(
   return injectManagedBreakpointCss(html, serializeBreakpointMediaModel(model));
 }
 
+const parsedBreakpointMediaByHtml = memoizeByContent(
+  16,
+  (html: string): BreakpointMediaModel | null => {
+    const css = extractManagedBreakpointCss(html);
+    if (css === null) return null;
+    return parseBreakpointMediaCss(css);
+  },
+);
+
 export function getBreakpointMediaDeclarations(
   html: string,
   nodeId?: string | null,
 ): BreakpointMediaDeclaration[] {
-  const css = extractManagedBreakpointCss(html);
-  if (css === null) return [];
-  const model = parseBreakpointMediaCss(css);
+  const model = parsedBreakpointMediaByHtml(html);
+  if (model === null) return [];
   const declarations: BreakpointMediaDeclaration[] = [];
   for (const bucketKey of Object.keys(model)) {
     const maxWidthPx = Number.parseInt(bucketKey, 10);

@@ -255,6 +255,61 @@ describe("BreakpointDeviceControl interactions", () => {
     ]);
     expect(container.textContent).toContain("700");
   });
+
+  it("keeps an open options menu mounted with disabled controls while a mutation is pending", async () => {
+    const onAdd = vi.fn();
+    const onChangeWidth = vi.fn();
+    const onRemove = vi.fn();
+    const renderHarness = (mutationPending: boolean) => (
+      <AgentNativeI18nProvider catalog={{ messages: CATALOG_MESSAGES }}>
+        <BreakpointDeviceControl
+          breakpoints={[{ id: "bp-810", label: "Tablet", widthPx: 810 }]}
+          activeWidthPx={810}
+          canEdit
+          mutationPending={mutationPending}
+          onSelect={() => {}}
+          onAdd={onAdd}
+          onChangeWidth={onChangeWidth}
+          onRemove={onRemove}
+        />
+      </AgentNativeI18nProvider>
+    );
+
+    await act(async () => root.render(renderHarness(false)));
+    const optionsButton = container.querySelector<HTMLButtonElement>(
+      '[aria-label="options"]',
+    );
+    expect(optionsButton).not.toBeNull();
+    if (!optionsButton) return;
+    await act(async () => {
+      pointerClick(optionsButton);
+    });
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'input[aria-label="changeWidth"]',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => root.render(renderHarness(true)));
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="changeWidth"]',
+    );
+    expect(input).not.toBeNull();
+    if (!input) return;
+    expect(input.disabled).toBe(true);
+    await act(async () => {
+      setInputValue(input, "768");
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(onChangeWidth).not.toHaveBeenCalled();
+    expect(onRemove).not.toHaveBeenCalled();
+  });
 });
 
 describe("BreakpointDeviceControl — item 8a device icons", () => {

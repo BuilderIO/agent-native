@@ -228,13 +228,20 @@ declare var __INTERACTION_MODE__: boolean;
       "body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::after{" +
       "transition:none!important}";
     // Read the authored cascade, including split declarations and conditional rules.
-    if (freezeStyle.sheet) freezeStyle.sheet.disabled = true;
+    var hasFrozenAnimationRules =
+      frozenAnimationTargets.size > 0 ||
+      (freezeStyle.textContent || "").indexOf("animation-name:") !== -1;
+    var sheet = freezeStyle.sheet;
+    var disableForRead = !!(sheet && hasFrozenAnimationRules);
+    if (disableForRead && sheet) sheet.disabled = true;
     try {
       css += animationSafetyRules();
       if (freezeStyle.textContent !== css) freezeStyle.textContent = css;
       if (!freezeStyle.isConnected) document.head.appendChild(freezeStyle);
     } finally {
-      if (freezeStyle.sheet) freezeStyle.sheet.disabled = false;
+      if (disableForRead && sheet) {
+        sheet.disabled = false;
+      }
     }
   }
   syncEditingSafetyStyle();
@@ -255,6 +262,7 @@ declare var __INTERACTION_MODE__: boolean;
     });
   }
   new MutationObserver(function (records) {
+    if (!editingSafetyEnabled) return;
     var changed = records.some(function (record) {
       var target =
         record.target instanceof Element
@@ -262,9 +270,10 @@ declare var __INTERACTION_MODE__: boolean;
           : record.target.parentElement;
       var style = target && target.closest("style");
       if (style) return style !== freezeStyle;
+      if (target && target.closest("[data-agent-native-edit-overlay]"))
+        return false;
       if (record.type === "attributes") {
-        if (!target || target.closest("[data-agent-native-edit-overlay]"))
-          return false;
+        if (!target) return false;
         if (record.attributeName === "style")
           return (
             inlineAnimationDeclarations(record.oldValue) !==
@@ -290,6 +299,7 @@ declare var __INTERACTION_MODE__: boolean;
           return (
             node instanceof Element &&
             node !== freezeStyle &&
+            !node.hasAttribute("data-agent-native-edit-overlay") &&
             (node.matches("style") ||
               !!node.querySelector("style") ||
               node.getAnimations({ subtree: true }).length > 0)
@@ -305,7 +315,10 @@ declare var __INTERACTION_MODE__: boolean;
     attributeFilter: ["class", "style"],
     attributeOldValue: true,
   });
-  window.addEventListener("resize", syncEditingSafetyStyle);
+  window.addEventListener("resize", function () {
+    if (!editingSafetyEnabled) return;
+    syncEditingSafetyStyle();
+  });
   // :hover, :focus and attribute selectors can start a loop without a mutation.
   document.addEventListener(
     "animationstart",
@@ -331,7 +344,9 @@ declare var __INTERACTION_MODE__: boolean;
   document.addEventListener(
     "load",
     function (event) {
-      if (event.target instanceof HTMLLinkElement) syncEditingSafetyStyle();
+      if (editingSafetyEnabled && event.target instanceof HTMLLinkElement) {
+        syncEditingSafetyStyle();
+      }
     },
     true,
   );
@@ -361,10 +376,38 @@ declare var __INTERACTION_MODE__: boolean;
     if (target.closest("a[href], area[href]")) stopNativeInteraction(e);
   }
 
-  function postToParent(message: Record<string, unknown>): void {
+  var reportedBridgeFailures: Record<string, boolean> = {};
+
+  function reportBridgeFailure(operation: string, error: unknown): void {
+    if (reportedBridgeFailures[operation]) return;
+    reportedBridgeFailures[operation] = true;
+    if (typeof console !== "undefined" && typeof console.warn === "function") {
+      console.warn(
+        "[design-embedded-wheel-bridge] " + operation + " failed:",
+        error,
+      );
+    }
+  }
+
+  function isExpectedPointerCaptureError(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+    var name = (error as { name?: unknown }).name;
+    return name === "NotFoundError" || name === "InvalidStateError";
+  }
+
+  function postToParent(message: Record<string, unknown>): boolean {
+    var parentWindow = window.parent as Window | null | undefined;
+    if (!parentWindow || typeof parentWindow.postMessage !== "function") {
+      reportBridgeFailure("postMessage", "window.parent is unavailable");
+      return false;
+    }
     try {
-      (window.parent as Window).postMessage(message, "*");
-    } catch {}
+      parentWindow.postMessage(message, "*");
+      return true;
+    } catch (error) {
+      reportBridgeFailure("postMessage", error);
+      return false;
+    }
   }
 
   function sendWheel(wheel: ForwardedWheel): void {
@@ -379,21 +422,27 @@ declare var __INTERACTION_MODE__: boolean;
       sendNextWheel,
       hostAnswersWheels ? 1000 : 100,
     );
-    postToParent({
-      type: "embedded-canvas-wheel",
-      deltaX: wheel.deltaX,
-      deltaY: wheel.deltaY,
-      deltaZ: wheel.deltaZ,
-      deltaMode: wheel.deltaMode,
-      clientX: wheel.clientX,
-      clientY: wheel.clientY,
-      ctrlKey: wheel.ctrlKey,
-      metaKey: wheel.metaKey,
-      shiftKey: wheel.shiftKey,
-      altKey: wheel.altKey,
-      steps: wheel.steps,
-      seq: wheelSeq,
-    });
+    if (
+      !postToParent({
+        type: "embedded-canvas-wheel",
+        deltaX: wheel.deltaX,
+        deltaY: wheel.deltaY,
+        deltaZ: wheel.deltaZ,
+        deltaMode: wheel.deltaMode,
+        clientX: wheel.clientX,
+        clientY: wheel.clientY,
+        ctrlKey: wheel.ctrlKey,
+        metaKey: wheel.metaKey,
+        shiftKey: wheel.shiftKey,
+        altKey: wheel.altKey,
+        steps: wheel.steps,
+        seq: wheelSeq,
+      })
+    ) {
+      window.clearTimeout(wheelReadTimer);
+      wheelReadTimer = null;
+      wheelAwaitingHost = false;
+    }
   }
 
   function sendNextWheel(): void {
@@ -490,15 +539,15 @@ declare var __INTERACTION_MODE__: boolean;
   function postPan(
     phase: "start" | "move" | "end" | "cancel",
     e: PointerEvent,
-  ): void {
-    if (activeButton === null) return;
+  ): boolean {
+    if (activeButton === null) return false;
     lastClientX = clamp(e.clientX, 100000);
     lastClientY = clamp(e.clientY, 100000);
     lastCtrlKey = !!e.ctrlKey;
     lastMetaKey = !!e.metaKey;
     lastShiftKey = !!e.shiftKey;
     lastAltKey = !!e.altKey;
-    postToParent({
+    return postToParent({
       type: "embedded-canvas-pan",
       phase: phase,
       pointerId: Math.max(0, Math.min(0x7fffffff, Math.trunc(e.pointerId))),
@@ -516,13 +565,24 @@ declare var __INTERACTION_MODE__: boolean;
   }
 
   function releasePointerCapture(pointerId: number): void {
-    if (!captureTarget) return;
-    try {
-      if (captureTarget.hasPointerCapture(pointerId)) {
-        captureTarget.releasePointerCapture(pointerId);
-      }
-    } catch {}
+    var target = captureTarget;
     captureTarget = null;
+    if (!target) return;
+    if (
+      typeof target.hasPointerCapture !== "function" ||
+      typeof target.releasePointerCapture !== "function"
+    ) {
+      return;
+    }
+    try {
+      if (target.hasPointerCapture(pointerId)) {
+        target.releasePointerCapture(pointerId);
+      }
+    } catch (error) {
+      if (!isExpectedPointerCaptureError(error)) {
+        reportBridgeFailure("releasePointerCapture", error);
+      }
+    }
   }
 
   function scheduleClickSuppressionReset(): void {
@@ -542,13 +602,28 @@ declare var __INTERACTION_MODE__: boolean;
     activePointerId = e.pointerId;
     activeButton = e.button === 1 ? 1 : 0;
     suppressClick = true;
-    captureTarget =
+    var target =
       e.target instanceof Element ? e.target : document.documentElement;
-    try {
-      captureTarget.setPointerCapture(e.pointerId);
-    } catch {}
+    if (typeof target.setPointerCapture === "function") {
+      try {
+        target.setPointerCapture(e.pointerId);
+        captureTarget = target;
+      } catch (error) {
+        captureTarget = null;
+        if (!isExpectedPointerCaptureError(error)) {
+          reportBridgeFailure("setPointerCapture", error);
+        }
+      }
+    } else {
+      captureTarget = null;
+    }
     stopNativeInteraction(e);
-    postPan("start", e);
+    if (!postPan("start", e)) {
+      releasePointerCapture(e.pointerId);
+      activePointerId = null;
+      activeButton = null;
+      suppressClick = false;
+    }
   }
 
   function onPointerMove(e: PointerEvent): void {

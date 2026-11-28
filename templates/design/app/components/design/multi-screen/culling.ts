@@ -9,6 +9,50 @@ export const OVERVIEW_CULLING_OVERSCAN_FACTOR = 2;
 
 export const OVERVIEW_LIVE_SCREEN_BUDGET = 32;
 
+export const OVERVIEW_LIVE_BOARD_TOTAL_CONTENT_BYTES = 1_000_000;
+
+export const OVERVIEW_LIVE_SCREEN_HEAVY_CONTENT_BYTES = 200_000;
+
+export function estimateScreenContentBytes(screen: {
+  content: string;
+  contentBytes?: number | null;
+}): number {
+  const metadataBytes =
+    typeof screen.contentBytes === "number" &&
+    Number.isFinite(screen.contentBytes) &&
+    screen.contentBytes > 0
+      ? screen.contentBytes
+      : 0;
+  return Math.max(screen.content.length, metadataBytes);
+}
+
+export function requiresOverviewLevelOfDetail(
+  screens: readonly { content: string; contentBytes?: number | null }[],
+  options?: {
+    liveScreenBudget?: number;
+    totalContentBytesBudget?: number;
+    heavyScreenContentBytes?: number;
+  },
+): boolean {
+  const liveScreenBudget =
+    options?.liveScreenBudget ?? OVERVIEW_LIVE_SCREEN_BUDGET;
+  if (screens.length > liveScreenBudget) return true;
+  if (screens.length <= 1) return false;
+  const totalBudget =
+    options?.totalContentBytesBudget ?? OVERVIEW_LIVE_BOARD_TOTAL_CONTENT_BYTES;
+  const heavyScreenBytes =
+    options?.heavyScreenContentBytes ??
+    OVERVIEW_LIVE_SCREEN_HEAVY_CONTENT_BYTES;
+  let totalBytes = 0;
+  for (const screen of screens) {
+    const bytes = estimateScreenContentBytes(screen);
+    if (bytes >= heavyScreenBytes) return true;
+    totalBytes += bytes;
+    if (totalBytes >= totalBudget) return true;
+  }
+  return false;
+}
+
 export const OVERVIEW_LIVE_IFRAME_CEILING = 96;
 
 export const OVERVIEW_LIVE_BOOT_BUDGET = 4;
