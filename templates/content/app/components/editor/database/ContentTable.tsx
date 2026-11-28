@@ -238,10 +238,6 @@ export function ContentTableSurface<Row>({
         >
           <DataGrid
             {...props}
-            className={cn(
-              "[&_[data-data-grid-overflow-edge=end]]:z-30",
-              props.className,
-            )}
             horizontalOverflowAffordance={horizontalOverflowAffordance}
             contentClassName={cn("min-w-[720px]", contentClassName)}
             scrollContainerProps={{

@@ -7036,6 +7036,7 @@ function DatabaseTableView({
               columns={dataGridColumns}
               getRowId={(item) => item.id}
               columnWidths={columnWidths}
+              className="[&_[data-data-grid-overflow-edge=end]]:z-30"
               // Below `lg` the page owns vertical scrolling: a nested 70vh
               // scroller traps the swipe and leaves the table a short window.
               scrollContainerProps={{
@@ -16829,7 +16830,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                 ? "whitespace-pre-wrap break-words"
                 : "truncate whitespace-nowrap",
               itemProperty.definition.type === "number" &&
-                "w-full text-right tabular-nums",
+                "w-full text-end tabular-nums",
               isEmptyPropertyValue(itemProperty.value) &&
                 !bodyCellHydrationPending &&
                 "text-transparent",
