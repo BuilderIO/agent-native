@@ -29,7 +29,25 @@ import {
   RecordingMediaFetchError,
   type PublicAgentAccess,
 } from "./public-agent-context.js";
+import { logFrameMediaCleanupFailure } from "./recording-media-fetch-error.js";
 import { VideoFrameExtractionError } from "./video-frame.js";
+
+export async function cleanupAfterFrameFailure(cleanup: () => Promise<void>) {
+  try {
+    await cleanup();
+  } catch (error) {
+    logFrameMediaCleanupFailure(error);
+  }
+}
+
+export async function cleanupAfterFrameSuccess(cleanup: () => Promise<void>) {
+  try {
+    await cleanup();
+  } catch (error) {
+    logFrameMediaCleanupFailure(error);
+    throw new Error("Recording media cleanup failed.");
+  }
+}
 
 export function sendFrameJson<T>(
   event: H3Event,

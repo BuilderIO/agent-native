@@ -163,6 +163,58 @@ describe("agent-frame.jpg route", () => {
     );
   });
 
+  it("reports a failed media cleanup without exposing its path", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mockCleanupMediaFile.mockRejectedValueOnce(
+        Object.assign(new Error("too large /private/temp/path"), {
+          code: "EACCES",
+        }),
+      );
+      const event = makeEvent({ id: "cleanup-failure", atMs: "1000" });
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
+      expect(event.status).toBe(502);
+      expect(result).toMatchObject({
+        failureKind: "processing",
+        error: "Recording media cleanup failed.",
+      });
+      expect(JSON.stringify(result)).not.toContain("/private/temp/path");
+      expect(log.mock.calls).toEqual([
+        ["[agent-frame] Media cleanup failed.", "EACCES"],
+      ]);
+      expect(mockCleanupMediaFile).toHaveBeenCalledOnce();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each([
+    ["NO_VIDEO_TRACK", 422],
+    ["FFMPEG_UNAVAILABLE", 503],
+  ])("preserves %s when cleanup also fails", async (code, status) => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mockExtractJpegFrameFromFile.mockRejectedValueOnce(
+        new MockVideoFrameExtractionError("frame extraction failed", code),
+      );
+      mockCleanupMediaFile.mockRejectedValueOnce(
+        new Error("media cleanup failed"),
+      );
+      const event = makeEvent({ id: `combined-${code}`, atMs: "1000" });
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
+      expect(event.status).toBe(status);
+      expect(result).toMatchObject({ error: "frame extraction failed" });
+      expect(mockCleanupMediaFile).toHaveBeenCalledOnce();
+      expect(log).toHaveBeenCalledOnce();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("returns the verified requested frame when optional fill exhausts the broker", async () => {
     const assertHealthy = vi
       .fn()
