@@ -261,7 +261,8 @@ Detect our framework and auth setup, run \`npx @agent-native/actions init\`, con
           id: "actions-pkg-cli-init",
           data: {
             language: "bash",
-            code: `npx @agent-native/actions init`,
+            code: `pnpm add @agent-native/actions zod
+npx @agent-native/actions init`,
           },
         },
       ],

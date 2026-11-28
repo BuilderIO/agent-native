@@ -7,6 +7,7 @@ const SHARED_EXTERNALS = [
   "solid-js",
   "vue",
   "svelte",
+  "svelte/reactivity",
   "next",
   "next/cache",
   "next/headers",
@@ -58,6 +59,7 @@ export default defineConfig([
   {
     entry: {
       contract: "src/contract.ts",
+      files: "src/files.ts",
     },
     format: ["esm"],
     dts: true,

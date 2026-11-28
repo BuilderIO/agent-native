@@ -21,6 +21,7 @@ export {
 export type { ActionErrorSet, ActionFailOptions } from "./errors.js";
 
 export {
+  coerceGatewayStringifiedArgs,
   normalizeLlmToolInput,
   schemaToJsonSchema,
   validateInputSchema,

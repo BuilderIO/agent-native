@@ -113,7 +113,7 @@ Call actions directly from SvelteKit server loaders with zero HTTP hop using `ca
 ```ts
 // src/routes/todos/+page.server.ts
 import { callSvelteKitAction } from "@agent-native/actions/svelte/server";
-import { actions } from "../../../../.generated/actions";
+import { actions } from "../../../.generated/actions";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async (event) => {

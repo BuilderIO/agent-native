@@ -48,6 +48,10 @@
       "types": "./dist/contract.d.ts",
       "default": "./dist/contract.js"
     },
+    "./files": {
+      "types": "./dist/files.d.ts",
+      "default": "./dist/files.js"
+    },
     "./client": {
       "types": "./dist/client.d.ts",
       "default": "./dist/client.js"
@@ -128,11 +132,13 @@
     "@types/react": "^19.2.14",
     "react": "catalog:",
     "solid-js": "^1.9.10",
+    "svelte": "^5.59.2",
     "tsup": "^8.4.0",
     "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",
+    "vue": "^3.5.46",
     "zod": "catalog:"
   },
   "peerDependencies": {
@@ -140,7 +146,7 @@
     "next": ">=14",
     "react": ">=18",
     "solid-js": ">=1.9",
-    "svelte": ">=5",
+    "svelte": ">=5.7",
     "vite": ">=5",
     "vue": ">=3.4",
     "zod": ">=3.24"

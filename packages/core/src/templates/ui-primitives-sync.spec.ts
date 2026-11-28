@@ -83,6 +83,11 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "factory",
     "app-specific textarea behavior for factory forms",
   ],
+  [
+    "slider.tsx",
+    "design",
+    "hardened pointer-drag capture and commit semantics for Design inspector sliders",
+  ],
 ];
 
 const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
@@ -144,6 +149,11 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
   ],
   ["design", "tabs.tsx", "uses line-variant tabs in the Design home library"],
   ["slides", "tabs.tsx", "uses line-variant tabs in the Slides home library"],
+  [
+    "design",
+    "slider.tsx",
+    "hardened pointer-drag capture and commit semantics for Design inspector sliders",
+  ],
 ];
 
 function workspaceRoot(): string {
@@ -224,7 +234,14 @@ function isToolkitPrimitiveReExport(content: string): boolean {
 
 function getPrimitives(template: string): string[] {
   const dir = path.join(ROOT, "templates", template, "app", "components", "ui");
-  return fs.readdirSync(dir).filter((f) => f.endsWith(".tsx"));
+  return fs
+    .readdirSync(dir)
+    .filter(
+      (f) =>
+        f.endsWith(".tsx") &&
+        !f.endsWith(".test.tsx") &&
+        !f.endsWith(".spec.tsx"),
+    );
 }
 
 describe("ui-primitives sync guard", () => {
@@ -355,7 +372,11 @@ describe("ui-primitives sync guard", () => {
       for (const primitive of fs
         .readdirSync(uiRoot)
         .filter(
-          (file) => file.endsWith(".tsx") && file !== "toolkit-provider.tsx",
+          (file) =>
+            file.endsWith(".tsx") &&
+            !file.endsWith(".test.tsx") &&
+            !file.endsWith(".spec.tsx") &&
+            file !== "toolkit-provider.tsx",
         )) {
         const content = fs.readFileSync(path.join(uiRoot, primitive), "utf-8");
         if (isToolkitPrimitiveReExport(content)) continue;

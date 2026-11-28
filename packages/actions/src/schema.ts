@@ -10,6 +10,8 @@ interface StandardJsonSchemaCapability {
   };
 }
 
+const NO_COERCE = Symbol("no-coerce");
+
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -25,6 +27,82 @@ function formatIssuePath(
         : String(segment),
     )
     .join(".");
+}
+
+function coerceStringToSchemaType(raw: string, types: string[]): unknown {
+  const trimmed = raw.trim();
+  if (types.includes("boolean")) {
+    if (trimmed === "true") return true;
+    if (trimmed === "false") return false;
+  }
+  if (
+    (types.includes("array") &&
+      trimmed.startsWith("[") &&
+      trimmed.endsWith("]")) ||
+    (types.includes("object") &&
+      trimmed.startsWith("{") &&
+      trimmed.endsWith("}"))
+  ) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (types.includes("array") && Array.isArray(parsed)) return parsed;
+      if (types.includes("object") && isPlainRecord(parsed)) {
+        return parsed;
+      }
+    } catch {
+      // coercion-ok: unparseable text stays a string so schema validation reports the real error
+    }
+  }
+  if (
+    (types.includes("number") || types.includes("integer")) &&
+    trimmed !== "" &&
+    Number.isFinite(Number(trimmed))
+  ) {
+    const n = Number(trimmed);
+    if (types.includes("number") || Number.isInteger(n)) return n;
+  }
+  return NO_COERCE;
+}
+
+/**
+ * Repair LLM/gateway-stringified arguments before schema validation: undo
+ * stringified booleans (`"true"`), numbers (`"3"`), and JSON arrays/objects per
+ * the declared JSON Schema property types, and convert booleans for string
+ * `"true"`/`"false"` enums. Returns the original object reference when nothing
+ * changes.
+ */
+export function coerceGatewayStringifiedArgs(
+  args: unknown,
+  parameters?: { properties?: Record<string, unknown> } | null,
+): unknown {
+  const properties = parameters?.properties as
+    | Record<string, { type?: string | string[]; enum?: unknown[] }>
+    | undefined;
+  if (!properties) return args;
+  if (!isPlainRecord(args)) return args;
+
+  let out: Record<string, unknown> | null = null;
+  for (const [key, raw] of Object.entries(args)) {
+    const spec = properties[key];
+    if (!spec) continue;
+    if (typeof raw === "boolean" && spec.enum?.includes(String(raw))) {
+      out ??= { ...args };
+      out[key] = String(raw);
+      continue;
+    }
+    if (typeof raw !== "string") continue;
+    const types = Array.isArray(spec.type)
+      ? spec.type
+      : spec.type
+        ? [spec.type]
+        : [];
+    if (types.length === 0 || types.includes("string")) continue;
+    const coerced = coerceStringToSchemaType(raw, types);
+    if (coerced === NO_COERCE) continue;
+    out ??= { ...args };
+    out[key] = coerced;
+  }
+  return out ?? args;
 }
 
 export async function validateInputSchema<TSchema extends StandardSchemaV1>(
@@ -114,8 +192,8 @@ export function schemaToJsonSchema(
 
 /**
  * Normalize common LLM strict-mode quirks where optional fields are sent as
- * `null` or stringified JSON objects/arrays when the JSON Schema does not
- * expect those types.
+ * `null` or gateway-stringified primitives/objects/arrays when the JSON Schema
+ * does not expect those types.
  */
 export function normalizeLlmToolInput(
   rawInput: unknown,
@@ -130,6 +208,11 @@ export function normalizeLlmToolInput(
   if (!properties) {
     return rawInput;
   }
+
+  const coerced = coerceGatewayStringifiedArgs(rawInput, {
+    properties,
+  }) as Record<string, unknown>;
+
   const required = new Set(
     Array.isArray(jsonSchema["required"])
       ? jsonSchema["required"].filter(
@@ -139,7 +222,7 @@ export function normalizeLlmToolInput(
   );
 
   const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(rawInput)) {
+  for (const [key, value] of Object.entries(coerced)) {
     const fieldSchema = isPlainRecord(properties[key]) ? properties[key] : null;
     if (!fieldSchema) {
       out[key] = value;
@@ -157,33 +240,6 @@ export function normalizeLlmToolInput(
 
     if (value === null && !required.has(key) && !allowsNull) {
       continue;
-    }
-
-    if (
-      typeof value === "string" &&
-      (fieldType === "object" || fieldType === "array")
-    ) {
-      const trimmed = value.trim();
-      if (
-        (fieldType === "object" &&
-          trimmed.startsWith("{") &&
-          trimmed.endsWith("}")) ||
-        (fieldType === "array" &&
-          trimmed.startsWith("[") &&
-          trimmed.endsWith("]"))
-      ) {
-        try {
-          const parsed: unknown = JSON.parse(trimmed);
-          out[key] =
-            fieldType === "object"
-              ? normalizeLlmToolInput(parsed, fieldSchema)
-              : parsed;
-          continue;
-        } catch {
-          out[key] = value;
-          continue;
-        }
-      }
     }
 
     if (isPlainRecord(value) && fieldType === "object") {

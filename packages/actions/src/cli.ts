@@ -329,11 +329,21 @@ function runInit(
     }
   }
 
+  let missingDeps: string[] = [];
   const pkgPath = path.join(projectRoot, "package.json");
   if (fs.existsSync(pkgPath)) {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
       scripts?: Record<string, string>;
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
     };
+    const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+    if (!("@agent-native/actions" in allDeps)) {
+      missingDeps.push("@agent-native/actions");
+    }
+    if (!("zod" in allDeps)) {
+      missingDeps.push("zod");
+    }
     pkg.scripts ??= {};
     if (!pkg.scripts["action"]) {
       if (options.dryRun) {
@@ -371,14 +381,29 @@ function runInit(
     );
   }
 
+  const nextSteps: string[] = [];
+  if (missingDeps.length > 0) {
+    nextSteps.push(`install dependencies: pnpm add ${missingDeps.join(" ")}`);
+  }
   if (framework === "next") {
-    console.error(
-      "\nNext step: wrap next.config.ts with `withAgentNativeActions()` from `@agent-native/actions/next/config`.",
+    nextSteps.push(
+      "wrap next.config.ts with `withAgentNativeActions()` from `@agent-native/actions/next/config`.",
     );
-  } else if (framework === "vite" || framework === "sveltekit") {
-    console.error(
-      "\nNext step: add `agentNativeActionsPlugin()` from `@agent-native/actions/vite` to vite.config.ts.",
+  } else if (framework === "vite") {
+    nextSteps.push(
+      "add `agentNativeActionsPlugin()` from `@agent-native/actions/vite` to vite.config.ts.",
     );
+  } else if (framework === "sveltekit") {
+    nextSteps.push(
+      "add `agentNativeActionsPlugin({ devMiddleware: false })` from `@agent-native/actions/vite` to vite.config.ts.",
+    );
+  } else if (framework === "nuxt") {
+    nextSteps.push(
+      'add `"@agent-native/actions/nuxt"` to `modules` in nuxt.config.ts.',
+    );
+  }
+  for (const step of nextSteps) {
+    console.error(`\nNext step: ${step}`);
   }
 }
 
