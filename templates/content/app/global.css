@@ -90,6 +90,18 @@
 
   /* A check's dot where a part of the page doesn't pass. */
   --page-check-miss: #d97706;
+
+  --code-token-keyword: 280 70% 48%;
+  --code-token-string: 120 40% 31%;
+  --code-token-number: 30 80% 32%;
+  --code-token-type: 190 70% 29%;
+  --code-token-title: 210 70% 40%;
+  --code-token-tag: 350 65% 44%;
+  --code-token-attr: 40 70% 29%;
+  --code-token-variable: 0 60% 45%;
+  --code-token-regexp: 0 65% 44%;
+  --code-token-symbol: 280 50% 47%;
+  --code-token-deletion: 0 60% 45%;
 }
 
 @theme {
@@ -191,6 +203,18 @@
   --warning-foreground: #fde68a;
 
   --page-check-miss: #f59e0b;
+
+  --code-token-keyword: 280 70% 70%;
+  --code-token-string: 120 40% 58%;
+  --code-token-number: 30 80% 60%;
+  --code-token-type: 190 70% 55%;
+  --code-token-title: 210 70% 65%;
+  --code-token-tag: 350 65% 68%;
+  --code-token-attr: 40 70% 60%;
+  --code-token-variable: 0 60% 68%;
+  --code-token-regexp: 0 65% 68%;
+  --code-token-symbol: 280 50% 70%;
+  --code-token-deletion: 0 60% 68%;
 }
 
 @layer base {
@@ -961,6 +985,12 @@
   background: hsl(var(--muted));
   border-radius: 6px;
   margin: 0.6em 0;
+  padding: 0;
+}
+.content-editor .content-code-block code {
+  display: block;
+  overflow-x: auto;
+  padding: 0.9em 1.1em;
   /* Room for the block's bar, which shows on hover or with the cursor in it. */
   padding-top: 2.5em;
 }
@@ -976,6 +1006,38 @@
   border: none;
   font-size: inherit;
   color: inherit;
+}
+@property --content-code-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes content-code-fade {
+  0%,
+  90% {
+    --content-code-fade: 2em;
+  }
+  100% {
+    --content-code-fade: 0px;
+  }
+}
+@supports (animation-timeline: scroll()) {
+  .content-editor .content-code-block code {
+    mask-image: linear-gradient(
+      to left,
+      transparent,
+      #000 var(--content-code-fade)
+    );
+    animation: content-code-fade linear both;
+    animation-timeline: scroll(self inline);
+  }
+  .content-editor .content-code-block code:dir(rtl) {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--content-code-fade)
+    );
+  }
 }
 
 /* A Mermaid code block drawn as its diagram; the source opens above it. */
@@ -1131,53 +1193,53 @@
 }
 .content-editor .hljs-keyword,
 .content-editor .hljs-selector-tag {
-  color: hsl(280 70% 65%);
+  color: hsl(var(--code-token-keyword));
 }
 .content-editor .hljs-string,
 .content-editor .hljs-addition {
-  color: hsl(120 40% 58%);
+  color: hsl(var(--code-token-string));
 }
 .content-editor .hljs-number,
 .content-editor .hljs-literal {
-  color: hsl(30 80% 60%);
+  color: hsl(var(--code-token-number));
 }
 .content-editor .hljs-built_in,
 .content-editor .hljs-type {
-  color: hsl(190 70% 55%);
+  color: hsl(var(--code-token-type));
 }
 .content-editor .hljs-title,
 .content-editor .hljs-title\\.class_,
 .content-editor .hljs-section {
-  color: hsl(210 70% 65%);
+  color: hsl(var(--code-token-title));
 }
 .content-editor .hljs-name,
 .content-editor .hljs-selector-id,
 .content-editor .hljs-selector-class {
-  color: hsl(350 65% 60%);
+  color: hsl(var(--code-token-tag));
 }
 .content-editor .hljs-attr,
 .content-editor .hljs-attribute {
-  color: hsl(40 70% 60%);
+  color: hsl(var(--code-token-attr));
 }
 .content-editor .hljs-variable,
 .content-editor .hljs-template-variable {
-  color: hsl(0 60% 65%);
+  color: hsl(var(--code-token-variable));
 }
 .content-editor .hljs-regexp {
-  color: hsl(0 65% 60%);
+  color: hsl(var(--code-token-regexp));
 }
 .content-editor .hljs-symbol,
 .content-editor .hljs-bullet {
-  color: hsl(280 50% 55%);
+  color: hsl(var(--code-token-symbol));
 }
 .content-editor .hljs-meta {
   color: hsl(var(--muted-foreground));
 }
 .content-editor .hljs-deletion {
-  color: hsl(0 60% 55%);
+  color: hsl(var(--code-token-deletion));
 }
 .content-editor .hljs-function {
-  color: hsl(210 70% 65%);
+  color: hsl(var(--code-token-title));
 }
 .content-editor .hljs-params {
   color: hsl(var(--foreground));
@@ -1187,12 +1249,9 @@
   font-family: "JetBrains Mono Variable", "JetBrains Mono", monospace;
   font-size: 0.85em;
   background: hsl(var(--muted));
-  color: hsl(0 70% 55%);
+  color: inherit;
   padding: 0.1em 0.35em;
   border-radius: 3px;
-}
-.dark .content-editor code {
-  color: hsl(0 60% 65%);
 }
 
 .content-link {
