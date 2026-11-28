@@ -485,7 +485,7 @@ describe("slash command menu trigger", () => {
         { top: 100, bottom: 1200 },
         840,
       ),
-    ).toEqual({ bottom: 444 });
+    ).toEqual({ bottom: 444, maxHeight: 360 });
   });
 
   it("opens below a caret when the viewport has room", () => {
@@ -495,7 +495,31 @@ describe("slash command menu trigger", () => {
         { top: 100, bottom: 1200 },
         840,
       ),
-    ).toEqual({ top: 124 });
+    ).toEqual({ top: 124, maxHeight: 360 });
+  });
+
+  it("fits the menu in the room on its side when neither side has its full height", () => {
+    expect(
+      getSlashMenuVerticalPosition(
+        { top: 300, bottom: 320 },
+        { top: 0, bottom: 2000 },
+        600,
+      ),
+    ).toEqual({ bottom: 1704, maxHeight: 280 });
+    expect(
+      getSlashMenuVerticalPosition(
+        { top: 260, bottom: 280 },
+        { top: 0, bottom: 2000 },
+        600,
+      ),
+    ).toEqual({ top: 284, maxHeight: 300 });
+    expect(
+      getSlashMenuVerticalPosition(
+        { top: 10, bottom: 30 },
+        { top: 0, bottom: 40 },
+        40,
+      ),
+    ).toEqual({ top: 34, maxHeight: 0 });
   });
 
   it("keeps native commands when registry commands have the same visible title", () => {

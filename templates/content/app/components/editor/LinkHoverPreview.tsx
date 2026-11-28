@@ -2,7 +2,13 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconUnlink, IconExternalLink, IconPencil } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/react";
 import { useEffect, useState, useRef } from "react";
+import { flushSync } from "react-dom";
 
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -14,51 +20,61 @@ interface LinkHoverPreviewProps {
   editable?: boolean;
 }
 
+interface HoveredLink {
+  url: string;
+  text: string | null;
+  link: HTMLAnchorElement;
+}
+
+function stillShowsLink(editor: Editor, hovered: HoveredLink) {
+  return (
+    editor.view.dom.contains(hovered.link) &&
+    hovered.link.href === hovered.url &&
+    hovered.link.textContent === hovered.text
+  );
+}
+
 export function LinkHoverPreview({
   editor,
   editable = true,
 }: LinkHoverPreviewProps) {
   const t = useT();
-  const [hoveredLink, setHoveredLink] = useState<{
-    url: string;
-    rect: DOMRect;
-    pos: number;
-  } | null>(null);
+  const [hoveredLink, setHoveredLink] = useState<HoveredLink | null>(null);
   const [editing, setEditing] = useState(false);
   const [editUrl, setEditUrl] = useState("");
 
   const hoverTimer = useRef<NodeJS.Timeout>(undefined);
   const leaveTimer = useRef<NodeJS.Timeout>(undefined);
   const previewRef = useRef<HTMLDivElement>(null);
+  const pointerLink = useRef<HTMLAnchorElement | null>(null);
+  const dismissedLink = useRef<HTMLAnchorElement | null>(null);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (editing) return;
       const target = e.target as HTMLElement;
-      const link = target.closest("a.content-link") as HTMLAnchorElement;
+      const found = target.closest<HTMLAnchorElement>("a.content-link");
+      const link = found && editor.view.dom.contains(found) ? found : null;
+      pointerLink.current = link;
+      if (editing) return;
 
-      if (link && editor.view.dom.contains(link)) {
+      if (link) {
         clearTimeout(leaveTimer.current);
         leaveTimer.current = undefined;
-        const url = link.href;
-        const rect = link.getBoundingClientRect();
-
-        if (hoveredLink?.url === url) return;
-
-        let pos = -1;
-        try {
-          pos = editor.view.posAtDOM(link, 0);
-        } catch {
-          // ignore
+        if (hoveredLink?.link === link || dismissedLink.current === link) {
+          clearTimeout(hoverTimer.current);
+          return;
         }
+        dismissedLink.current = null;
+        const hovered = { url: link.href, text: link.textContent, link };
 
         clearTimeout(hoverTimer.current);
         hoverTimer.current = setTimeout(() => {
-          setHoveredLink({ url, rect, pos });
+          if (stillShowsLink(editor, hovered)) setHoveredLink(hovered);
         }, 300);
       } else {
         const isHoveringPreview = previewRef.current?.contains(target);
         if (!isHoveringPreview) {
+          dismissedLink.current = null;
           clearTimeout(hoverTimer.current);
           if (hoveredLink && !leaveTimer.current) {
             leaveTimer.current = setTimeout(() => {
@@ -74,6 +90,8 @@ export function LinkHoverPreview({
     };
 
     const handleMouseLeave = () => {
+      pointerLink.current = null;
+      dismissedLink.current = null;
       if (editing) return;
       clearTimeout(hoverTimer.current);
       leaveTimer.current = setTimeout(() => {
@@ -93,16 +111,52 @@ export function LinkHoverPreview({
     };
   }, [editor, hoveredLink, editing]);
 
+  useEffect(() => {
+    if (!hoveredLink) return;
+    const close = () => {
+      setEditing(false);
+      setEditUrl("");
+      setHoveredLink(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Escape" ||
+        previewRef.current?.contains(document.activeElement)
+      )
+        return;
+      clearTimeout(hoverTimer.current);
+      clearTimeout(leaveTimer.current);
+      leaveTimer.current = undefined;
+      dismissedLink.current = pointerLink.current;
+      flushSync(close);
+    };
+    const closeIfStale = () => {
+      if (!stillShowsLink(editor, hoveredLink)) close();
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    editor.on("transaction", closeIfStale);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      editor.off("transaction", closeIfStale);
+    };
+  }, [editor, hoveredLink]);
+
+  const linkPosition = () => {
+    if (!hoveredLink || !stillShowsLink(editor, hoveredLink)) return null;
+    return editor.view.posAtDOM(hoveredLink.link, 0);
+  };
+
   const handleRemoveLink = () => {
-    if (hoveredLink && hoveredLink.pos >= 0) {
+    const pos = linkPosition();
+    if (pos !== null) {
       editor
         .chain()
-        .setTextSelection(hoveredLink.pos)
+        .setTextSelection(pos)
         .extendMarkRange("link")
         .unsetLink()
         .run();
-      setHoveredLink(null);
     }
+    setHoveredLink(null);
   };
 
   const handleStartEdit = () => {
@@ -118,12 +172,13 @@ export function LinkHoverPreview({
   };
 
   const handleApplyEdit = () => {
-    if (!hoveredLink || hoveredLink.pos < 0) return;
+    const pos = linkPosition();
+    if (pos === null) {
+      handleCancelEdit();
+      return;
+    }
     const next = editUrl.trim();
-    const chain = editor
-      .chain()
-      .setTextSelection(hoveredLink.pos)
-      .extendMarkRange("link");
+    const chain = editor.chain().setTextSelection(pos).extendMarkRange("link");
     if (next) {
       chain.setLink({ href: next }).run();
     } else {
@@ -145,105 +200,126 @@ export function LinkHoverPreview({
   })();
 
   return (
-    <div
-      ref={previewRef}
-      onMouseLeave={() => {
-        if (editing) return;
-        leaveTimer.current = setTimeout(() => {
-          setHoveredLink(null);
-          leaveTimer.current = undefined;
-        }, 300);
+    <Popover
+      open
+      modal={false}
+      onOpenChange={(open) => {
+        if (!open) handleCancelEdit();
       }}
-      onMouseEnter={() => {
-        clearTimeout(leaveTimer.current);
-        leaveTimer.current = undefined;
-      }}
-      style={{
-        position: "fixed",
-        top: hoveredLink.rect.bottom + 8,
-        left: Math.max(16, hoveredLink.rect.left),
-        zIndex: 50,
-      }}
-      className="w-72 rounded-lg border bg-popover text-popover-foreground shadow-md overflow-hidden animate-in fade-in-0 zoom-in-95 origin-top-left"
     >
-      {editing ? (
-        <div className="flex items-center gap-1 p-1.5">
-          <input
-            autoFocus
-            type="url"
-            value={editUrl}
-            onChange={(e) => setEditUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleApplyEdit();
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                handleCancelEdit();
-              }
-            }}
-            placeholder={t("editor.pasteLink")}
-            className="flex-1 bg-transparent border-none outline-none text-xs px-2 py-1 placeholder:text-muted-foreground"
-          />
-          <button
-            onClick={handleApplyEdit}
-            className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 px-2 py-1 cursor-pointer"
-          >
-            {t("editor.apply")}
-          </button>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 p-2">
-          <a
-            href={hoveredLink.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 text-xs text-blue-600 dark:text-blue-400 hover:underline truncate"
-          >
-            {domain}
-          </a>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <a
-                href={hoveredLink.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent cursor-pointer"
-              >
-                <IconExternalLink className="h-3.5 w-3.5" />
-              </a>
-            </TooltipTrigger>
-            <TooltipContent>{t("editor.openLink")}</TooltipContent>
-          </Tooltip>
-          {editable ? (
-            <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={handleStartEdit}
-                    className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent cursor-pointer"
-                  >
-                    <IconPencil className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("editor.editLink")}</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={handleRemoveLink}
-                    className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-destructive/10 cursor-pointer"
-                  >
-                    <IconUnlink className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("editor.removeLink")}</TooltipContent>
-              </Tooltip>
-            </>
-          ) : null}
-        </div>
-      )}
-    </div>
+      <PopoverAnchor virtualRef={{ current: hoveredLink.link }} />
+      <PopoverContent
+        ref={previewRef}
+        side="bottom"
+        align="start"
+        sideOffset={8}
+        collisionPadding={8}
+        hideWhenDetached
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={() => {
+          dismissedLink.current = pointerLink.current;
+        }}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        onFocusOutside={(event) => event.preventDefault()}
+        onPointerDownOutside={(event) => {
+          if (
+            event.target instanceof Node &&
+            hoveredLink.link.contains(event.target)
+          )
+            event.preventDefault();
+        }}
+        onMouseLeave={() => {
+          if (editing) return;
+          leaveTimer.current = setTimeout(() => {
+            setHoveredLink(null);
+            leaveTimer.current = undefined;
+          }, 300);
+        }}
+        onMouseEnter={() => {
+          clearTimeout(leaveTimer.current);
+          leaveTimer.current = undefined;
+        }}
+        className="max-w-[calc(100vw-1rem)] overflow-hidden p-0"
+      >
+        {editing ? (
+          <div className="flex items-center gap-1 p-1.5">
+            <input
+              autoFocus
+              type="url"
+              value={editUrl}
+              onChange={(e) => setEditUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleApplyEdit();
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  handleCancelEdit();
+                }
+              }}
+              placeholder={t("editor.pasteLink")}
+              className="flex-1 bg-transparent border-none outline-none text-xs px-2 py-1 placeholder:text-muted-foreground"
+            />
+            <button
+              onClick={handleApplyEdit}
+              className="text-xs font-medium text-info hover:text-info/80 px-2 py-1 cursor-pointer"
+            >
+              {t("editor.apply")}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 p-2">
+            <a
+              href={hoveredLink.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 text-xs text-info hover:underline truncate"
+            >
+              {domain}
+            </a>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href={hoveredLink.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent cursor-pointer"
+                >
+                  <IconExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </TooltipTrigger>
+              <TooltipContent>{t("editor.openLink")}</TooltipContent>
+            </Tooltip>
+            {editable ? (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handleStartEdit}
+                      className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent cursor-pointer"
+                    >
+                      <IconPencil className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("editor.editLink")}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handleRemoveLink}
+                      className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-destructive/10 cursor-pointer"
+                    >
+                      <IconUnlink className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("editor.removeLink")}</TooltipContent>
+                </Tooltip>
+              </>
+            ) : null}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
