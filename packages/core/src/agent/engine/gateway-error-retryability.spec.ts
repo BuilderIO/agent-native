@@ -3,9 +3,17 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BUILDER_CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
-import { isRetryableError } from "../production-agent.js";
+import {
+  isContextTooLongError,
+  isRecoverableContinuationError,
+  isResumableEngineError,
+  isRetryableError,
+  isTransientProviderRateLimitError,
+} from "../production-agent.js";
 import { createBuilderEngine } from "./builder-engine.js";
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "./credential-errors.js";
+import { classifyProviderError } from "./error-detail.js";
+import { PRIVATE_COMPLETION_ERROR_MESSAGE } from "./private-completion-error.js";
 import { EngineError, type EngineStreamOptions } from "./types.js";
 
 const credentialState = vi.hoisted(() => ({
@@ -96,8 +104,183 @@ describe("Builder gateway error retryability", () => {
       env?: Record<string, string>;
       upgradeUrl?: boolean;
       expectedErrorCode?: string;
+      expectedProviderRetryable?: boolean;
+      expectedContextOverflow?: boolean;
       retryable: boolean;
     }> = [
+      ...["credits-limit-daily", "credits-limit-monthly"].flatMap((code) => [
+        ...[429, 500].map((status) => ({
+          label: `${status} nested ${code} with generic top-level code`,
+          response: () =>
+            jsonErrorResponse(status, {
+              code: "gateway_error",
+              error: { code, message: "quota exceeded" },
+            }),
+          retryable: false,
+          upgradeUrl: true,
+          expectedErrorCode: code,
+          expectedProviderRetryable: false,
+        })),
+        ...[402, 429, 500].map((status) => ({
+          label: `${status} ${code} with transient wording`,
+          response: () =>
+            jsonErrorResponse(status, { code, message: "quota exceeded" }),
+          retryable: false,
+          upgradeUrl: true,
+          expectedErrorCode: code,
+          expectedProviderRetryable: false,
+        })),
+        ...["error", "invalid_request", "rate_limited"].map((reason) => ({
+          label: `in-stream ${reason} ${code} with transient wording`,
+          response: () =>
+            jsonlResponse([
+              {
+                type: "stop",
+                reason,
+                code,
+                statusCode: 429,
+                error: "quota exceeded",
+              },
+            ]),
+          retryable: false,
+          upgradeUrl: true,
+          expectedErrorCode: code,
+          expectedProviderRetryable: false,
+        })),
+        {
+          label: `in-stream ${code} with connection wording`,
+          response: () =>
+            jsonlResponse([
+              {
+                type: "stop",
+                reason: "error",
+                code,
+                error: "Connection error",
+              },
+            ]),
+          retryable: false,
+          upgradeUrl: true,
+          expectedErrorCode: code,
+          expectedProviderRetryable: false,
+        },
+      ]),
+      ...["credits-limit-daily", "credits-limit-monthly"].flatMap((code) => [
+        {
+          label: `in-stream specific ${code} with generic errorCode`,
+          response: () =>
+            jsonlResponse([
+              {
+                type: "stop",
+                reason: "error",
+                errorCode: "gateway_error",
+                code,
+                error: "quota exceeded",
+              },
+            ]),
+          retryable: false,
+          upgradeUrl: true,
+          expectedErrorCode: code,
+          expectedProviderRetryable: false,
+        },
+        ...["http", "stream"].map((transport) => ({
+          label: `${transport} ${code} with context-overflow wording`,
+          response: () =>
+            transport === "http"
+              ? jsonErrorResponse(429, { code, message: "prompt is too long" })
+              : jsonlResponse([
+                  {
+                    type: "stop",
+                    reason: "error",
+                    code,
+                    error: "prompt is too long",
+                  },
+                ]),
+          retryable: false,
+          upgradeUrl: true,
+          expectedErrorCode: code,
+          expectedProviderRetryable: false,
+          expectedContextOverflow: false,
+        })),
+      ]),
+      ...["error", "rate_limited"].map((reason) => ({
+        label: `in-stream 402 status with ${reason} reason`,
+        response: () =>
+          jsonlResponse([
+            { type: "stop", reason, statusCode: 402, error: "quota exceeded" },
+          ]),
+        retryable: false,
+        upgradeUrl: true,
+        expectedErrorCode: "http_402",
+        expectedProviderRetryable: false,
+      })),
+      {
+        label: "in-stream 402 status with context-overflow wording",
+        response: () =>
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "error",
+              statusCode: 402,
+              error: "prompt is too long",
+            },
+          ]),
+        retryable: false,
+        upgradeUrl: true,
+        expectedErrorCode: "http_402",
+        expectedProviderRetryable: false,
+        expectedContextOverflow: false,
+      },
+      {
+        label: "in-stream 402 code with transient wording",
+        response: () =>
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "error",
+              code: "http_402",
+              error: "quota exceeded",
+            },
+          ]),
+        retryable: false,
+        upgradeUrl: true,
+        expectedErrorCode: "http_402",
+        expectedProviderRetryable: false,
+      },
+      {
+        label: "429 nested http_402 with rate_limited top-level code",
+        response: () =>
+          jsonErrorResponse(429, {
+            code: "rate_limited",
+            error: { code: "http_402", message: "quota exceeded" },
+          }),
+        retryable: false,
+        upgradeUrl: true,
+        expectedErrorCode: "http_402",
+        expectedProviderRetryable: false,
+      },
+      {
+        label: "429 nested explicit credit code with top-level http_402",
+        response: () =>
+          jsonErrorResponse(429, {
+            code: "http_402",
+            error: { code: "credits-limit-monthly", message: "quota exceeded" },
+          }),
+        retryable: false,
+        upgradeUrl: true,
+        expectedErrorCode: "credits-limit-monthly",
+        expectedProviderRetryable: false,
+      },
+      {
+        label: "429 rate_limited without credit code",
+        response: () =>
+          jsonErrorResponse(429, {
+            code: "rate_limited",
+            error: { code: "gateway_error", message: "quota exceeded" },
+          }),
+        retryable: true,
+        expectedErrorCode: "rate_limited",
+        expectedProviderRetryable: true,
+      },
       {
         label: "402 credits limit",
         response: () =>
@@ -148,6 +331,17 @@ describe("Builder gateway error retryability", () => {
             message: "Daily gateway request cap reached",
           }),
         retryable: false,
+      },
+      {
+        label:
+          "429 non-credit top-level code takes precedence over nested code",
+        response: () =>
+          jsonErrorResponse(429, {
+            code: "too_many_concurrent_requests",
+            error: { code: "other_gateway_error", message: "rate limited" },
+          }),
+        expectedErrorCode: "too_many_concurrent_requests",
+        retryable: true,
       },
       {
         label: "429 org concurrency cap",
@@ -416,25 +610,226 @@ describe("Builder gateway error retryability", () => {
           } else {
             expect(stop.error).not.toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
           }
-          if (branch.upgradeUrl) {
-            expect(stop.upgradeUrl).toEqual(
-              expect.stringContaining("builder.io"),
-            );
-          } else {
-            expect(stop.upgradeUrl).toBeUndefined();
-          }
-          if (branch.expectedErrorCode) {
-            expect(stop.errorCode).toBe(branch.expectedErrorCode);
-          }
+          expect(stop.upgradeUrl?.includes("builder.io") ?? false).toBe(
+            Boolean(branch.upgradeUrl),
+          );
+          expect(stop.errorCode).toEqual(
+            branch.expectedErrorCode ?? stop.errorCode,
+          );
           const engineError = new EngineError(stop.error ?? "", {
             errorCode: stop.errorCode,
             statusCode: stop.statusCode,
             providerRetryable: stop.providerRetryable,
+            contextOverflow: stop.contextOverflow,
           });
           expect(isRetryableError(engineError)).toBe(branch.retryable);
+          const contextOverflow = stop.contextOverflow ?? false;
+          const classifiedContextOverflow = isContextTooLongError(engineError);
+          expect(contextOverflow).toBe(
+            branch.expectedContextOverflow ?? contextOverflow,
+          );
+          expect(classifiedContextOverflow).toBe(
+            branch.expectedContextOverflow ?? classifiedContextOverflow,
+          );
+          expect(stop.providerRetryable).toBe(
+            branch.expectedProviderRetryable ?? stop.providerRetryable,
+          );
         });
       }
     }
+
+    it.each(["credits-limit-daily", "credits-limit-monthly"])(
+      "does not retry %s despite conflicting retry signals",
+      (errorCode) => {
+        for (const statusCode of [429, 500]) {
+          for (const providerRetryable of [undefined, true]) {
+            const error = new EngineError("gateway timeout: quota exceeded", {
+              errorCode,
+              statusCode,
+              providerRetryable,
+            });
+            expect(isRetryableError(error)).toBe(false);
+            expect(isResumableEngineError(error)).toBe(false);
+            expect(isTransientProviderRateLimitError(error)).toBe(false);
+            expect(
+              isRecoverableContinuationError({
+                type: "error",
+                error: error.message,
+                errorCode,
+                providerRetryable,
+                recoverable: true,
+              }),
+            ).toBe(false);
+          }
+        }
+      },
+    );
+
+    it.each(["credits-limit-daily", "credits-limit-monthly"])(
+      "keeps private streamed %s terminal without exposing provider data",
+      async (code) => {
+        const canary = "synthetic-private-body-canary";
+        const logs = ["log", "warn", "error"].map((level) =>
+          vi
+            .spyOn(console, level as "log" | "warn" | "error")
+            .mockImplementation(() => {}),
+        );
+        for (const reason of ["error", "invalid_request", "rate_limited"]) {
+          vi.stubGlobal(
+            "fetch",
+            vi.fn().mockResolvedValue(
+              jsonlResponse([
+                {
+                  type: "stop",
+                  reason,
+                  errorCode: "gateway_error",
+                  code,
+                  statusCode: 429,
+                  error: `prompt is too long ${canary}`,
+                  requestId: canary,
+                },
+              ]),
+            ),
+          );
+          const events = await collectEvents(
+            createBuilderEngine().stream({
+              ...BASE_OPTS,
+              privateContent: true,
+            }),
+          );
+          const stop = events.find((event) => event.type === "stop");
+          expect(stop).toMatchObject({
+            type: "stop",
+            reason: "error",
+            error: PRIVATE_COMPLETION_ERROR_MESSAGE,
+            errorCode: "private_completion_error",
+            provider: "builder",
+            providerRetryable: false,
+          });
+          expect(JSON.stringify(events)).not.toContain(canary);
+          expect(JSON.stringify(events)).not.toContain(code);
+          const error = new EngineError(stop.error, {
+            errorCode: stop.errorCode,
+            statusCode: stop.statusCode,
+            providerRetryable: stop.providerRetryable,
+            contextOverflow: stop.contextOverflow,
+          });
+          expect(isRetryableError(error)).toBe(false);
+          expect(isContextTooLongError(error)).toBe(false);
+          expect(isTransientProviderRateLimitError(error)).toBe(false);
+          expect(isResumableEngineError(error)).toBe(false);
+        }
+        expect(JSON.stringify(logs.map((log) => log.mock.calls))).not.toContain(
+          canary,
+        );
+      },
+    );
+
+    it.each(["http", "stream"])(
+      "keeps private Builder %s 402 terminal",
+      async (transport) => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValue(
+            transport === "http"
+              ? jsonErrorResponse(402, { message: "private canary" })
+              : jsonlResponse([
+                  {
+                    type: "stop",
+                    reason: "error",
+                    statusCode: 402,
+                    error: "private canary",
+                  },
+                ]),
+          ),
+        );
+        const events = await collectEvents(
+          createBuilderEngine().stream({ ...BASE_OPTS, privateContent: true }),
+        );
+        const stop = events.find((event) => event.type === "stop");
+        expect(stop).toMatchObject({
+          error: PRIVATE_COMPLETION_ERROR_MESSAGE,
+          errorCode: "http_402",
+          statusCode: 402,
+          providerRetryable: false,
+        });
+        expect(JSON.stringify(events)).not.toContain("private canary");
+        expect(
+          isRetryableError(
+            new EngineError(stop.error, {
+              errorCode: stop.errorCode,
+              statusCode: stop.statusCode,
+              providerRetryable: stop.providerRetryable,
+            }),
+          ),
+        ).toBe(false);
+      },
+    );
+
+    it("keeps a genuine private gateway throttle retryable", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "rate_limited",
+              statusCode: 429,
+              error: "private canary",
+            },
+          ]),
+        ),
+      );
+      const events = await collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, privateContent: true }),
+      );
+      const stop = events.find((event) => event.type === "stop");
+      expect(stop).toMatchObject({
+        error: PRIVATE_COMPLETION_ERROR_MESSAGE,
+        errorCode: "http_429",
+        statusCode: 429,
+      });
+      expect(JSON.stringify(events)).not.toContain("private canary");
+      expect(
+        isRetryableError(
+          new EngineError(stop.error, {
+            errorCode: stop.errorCode,
+            statusCode: stop.statusCode,
+            providerRetryable: stop.providerRetryable,
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it("does not treat explicit credits as context overflow even with a conflicting flag", () => {
+      expect(
+        isContextTooLongError(
+          new EngineError("prompt is too long", {
+            errorCode: "credits-limit-daily",
+            contextOverflow: true,
+          }),
+        ),
+      ).toBe(false);
+    });
+
+    it("honors a non-Builder provider's retryable HTTP 402 classification", () => {
+      const classified = classifyProviderError(
+        Object.assign(new Error("temporary upstream refusal"), {
+          statusCode: 402,
+          isRetryable: true,
+        }),
+      );
+      expect(classified).toMatchObject({
+        errorCode: "http_402",
+        statusCode: 402,
+        providerRetryable: true,
+      });
+      expect(
+        isRetryableError(
+          new EngineError("temporary upstream refusal", classified),
+        ),
+      ).toBe(true);
+    });
 
     it("builds every terminal error stop through gatewayErrorStop", () => {
       const source = readFileSync(

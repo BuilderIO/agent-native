@@ -325,6 +325,7 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isContextOverflowCode,
   isContextOverflowMessage,
+  isExplicitCreditsLimitErrorCode,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
   isProviderTokenRateLimitMessage,
@@ -2921,6 +2922,13 @@ function toolInputActivityLabel(toolName?: string): string {
  */
 export function isContextTooLongError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
+  if (
+    err instanceof EngineError &&
+    (isExplicitCreditsLimitErrorCode(err.errorCode) ||
+      (err.errorCode?.trim().toLowerCase() === "http_402" &&
+        err.providerRetryable === false))
+  )
+    return false;
   if (err instanceof EngineError && err.contextOverflow === true) return true;
   if (isContextOverflowMessage(err.message)) return true;
   if (err instanceof EngineError && isContextOverflowCode(err.errorCode)) {
@@ -2936,7 +2944,11 @@ export function isRetryableError(err: unknown): boolean {
   const engineErr = err instanceof EngineError ? err : null;
   const code = (engineErr?.errorCode ?? "").toLowerCase();
 
-  if (code === "builder_gateway_timeout") return false;
+  if (
+    code === "builder_gateway_timeout" ||
+    isExplicitCreditsLimitErrorCode(code)
+  )
+    return false;
   if (
     code === "rate_limit_exceeded" ||
     msg.includes("daily gateway request cap")
@@ -5017,6 +5029,7 @@ export function isResumableEngineError(err: unknown): boolean {
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (
     (err instanceof EngineError && err.providerRetryable === false) ||
+    isExplicitCreditsLimitErrorCode(code) ||
     isRejectedRequestErrorCode(code)
   ) {
     return false;
@@ -5071,6 +5084,7 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
   const text = errorSearchText(err);
 
   if (
+    isExplicitCreditsLimitErrorCode(code) ||
     code === "rate_limit_exceeded" ||
     text.includes("daily gateway request cap")
   ) {
@@ -12746,6 +12760,7 @@ export function isRecoverableContinuationError(event: {
   if (
     event.providerRetryable === false ||
     event.recoverable === false ||
+    isExplicitCreditsLimitErrorCode(code) ||
     code === "builder_gateway_error" ||
     isRejectedRequestErrorCode(code)
   ) {

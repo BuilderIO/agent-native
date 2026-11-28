@@ -8,6 +8,8 @@ import {
   describeErrorWithCauses,
   isBareProviderRejectionMessage,
   isBuilderGatewayInternalErrorMessage,
+  isCreditsLimitErrorCode,
+  isExplicitCreditsLimitErrorCode,
   isGenericInternalServerErrorMessage,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionError,
@@ -15,6 +17,31 @@ import {
   isRejectedRequestErrorCode,
   isTerminalRecoveryErrorCode,
 } from "./error-detail.js";
+
+describe("credit error codes", () => {
+  it.each([
+    ["  CrEdItS-LiMiT-DaIlY  ", true],
+    ["\tCREDITS-LIMIT-monthly\n", true],
+    ["  HtTp_402  ", false],
+  ])("recognizes %j as terminal credit exhaustion", (code, explicit) => {
+    expect(isExplicitCreditsLimitErrorCode(code)).toBe(explicit);
+    expect(isCreditsLimitErrorCode(code)).toBe(true);
+    expect(isTerminalRecoveryErrorCode(code)).toBe(true);
+  });
+
+  it.each([
+    undefined,
+    "",
+    "credits_limit_daily",
+    "xcredits-limit",
+    "http_4020",
+    "http_500",
+  ])("does not classify %j as credit exhaustion", (code) => {
+    expect(isExplicitCreditsLimitErrorCode(code)).toBe(false);
+    expect(isCreditsLimitErrorCode(code)).toBe(false);
+    expect(isTerminalRecoveryErrorCode(code)).toBe(false);
+  });
+});
 
 describe("describeErrorWithCauses", () => {
   it("returns the bare message when there is no cause", () => {

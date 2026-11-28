@@ -51,6 +51,7 @@ import {
   isContextOverflowCode,
   isContextOverflowMessage,
   isCreditsLimitErrorCode,
+  isExplicitCreditsLimitErrorCode,
   isGenericInternalServerErrorMessage,
   isProviderConnectionErrorMessage,
   isRejectedRequestErrorCode,
@@ -156,10 +157,6 @@ async function notifyBuilderCreditLimit(): Promise<void> {
     }
   }
   await promise;
-}
-
-function isExplicitBuilderCreditsLimitCode(errorCode?: string): boolean {
-  return errorCode?.trim().toLowerCase().startsWith("credits-limit") === true;
 }
 
 async function clearBuilderCreditLimitAfterSuccess(
@@ -866,11 +863,13 @@ function gatewayErrorStop(
           ...(errorCode ? { errorCode } : {}),
           ...(upgradeUrl ? { upgradeUrl } : {}),
         }),
-    ...(isContextOverflowMessage(error) || isContextOverflowCode(errorCode)
+    ...(!isCreditsLimitErrorCode(errorCode) &&
+    (isContextOverflowMessage(error) || isContextOverflowCode(errorCode))
       ? { contextOverflow: true }
       : {}),
     ...(requestShape ? { requestShape } : {}),
     ...retry,
+    ...(isCreditsLimitErrorCode(errorCode) ? { providerRetryable: false } : {}),
   };
 }
 
@@ -879,12 +878,15 @@ function gatewayErrorStop(
  * canonical status (when one is known) is retained; no raw code, message,
  * request id, upgrade url, or request shape ever crosses this boundary.
  */
-function builderPrivateStop(status?: number): EngineEvent {
-  return (
+function builderPrivateStop(status?: number, terminal = false): EngineEvent {
+  const stop = (
     status !== undefined
       ? new PrivateCompletionError("builder", { status })
       : new PrivateCompletionError("builder")
   ).stopEvent();
+  return stop.type === "stop" && (terminal || status === 402)
+    ? { ...stop, providerRetryable: false }
+    : stop;
 }
 
 /** Canonical auth failure stop for a private completion (preserves 401). */
@@ -1007,9 +1009,17 @@ async function* emitHttpError(
     [errBody?.message, errBody?.error?.message].find(
       (value): value is string => typeof value === "string",
     ) ?? `Builder gateway returned ${status}`;
-  const providerCode = [errBody?.code, errBody?.error?.code].find(
-    (value): value is string => typeof value === "string",
-  );
+  const providerCodes = [errBody?.code, errBody?.error?.code];
+  const providerCode =
+    providerCodes.find(
+      (value): value is string =>
+        typeof value === "string" && isExplicitCreditsLimitErrorCode(value),
+    ) ??
+    providerCodes.find(
+      (value): value is string =>
+        typeof value === "string" && isCreditsLimitErrorCode(value),
+    ) ??
+    providerCodes.find((value): value is string => typeof value === "string");
   const code =
     canonicalizeBuilderGatewayErrorCode(providerCode, message) ??
     `http_${status}`;
@@ -1028,7 +1038,7 @@ async function* emitHttpError(
   const quotaErrorCode =
     status === 402 && !isCreditsLimitErrorCode(code) ? "http_402" : code;
   if (isCreditsLimitErrorCode(code) || status === 402) {
-    if (isExplicitBuilderCreditsLimitCode(quotaErrorCode)) {
+    if (isExplicitCreditsLimitErrorCode(quotaErrorCode)) {
       await notifyBuilderCreditLimit();
     }
     yield stop({
@@ -1398,6 +1408,20 @@ async function* parseJsonlStream(
             return;
           }
           const reason = event.reason ?? "end_turn";
+          const explicitCreditsCode = [event.errorCode, event.code].find(
+            (code): code is string =>
+              typeof code === "string" && isExplicitCreditsLimitErrorCode(code),
+          );
+          const creditsErrorCode =
+            explicitCreditsCode ??
+            (event.statusCode === 402 ||
+            [event.errorCode, event.code].some(
+              (code) =>
+                typeof code === "string" &&
+                code.trim().toLowerCase() === "http_402",
+            )
+              ? "http_402"
+              : undefined);
           if (
             reason === "refusal" ||
             reason === "content-filter" ||
@@ -1414,9 +1438,11 @@ async function* parseJsonlStream(
             reason !== "max_tokens" &&
             reason !== "stop_sequence"
           ) {
-            yield builderPrivateStop(
-              privateStatusForStopReason(reason, event.statusCode),
-            );
+            yield creditsErrorCode && event.statusCode !== 402
+              ? builderPrivateStop(undefined, true)
+              : builderPrivateStop(
+                  privateStatusForStopReason(reason, event.statusCode),
+                );
             return;
           }
           flushPending();
@@ -1429,7 +1455,48 @@ async function* parseJsonlStream(
               captureContext.creditsLane,
               captureContext.requestShape,
             );
-          if (reason === "rate_limited") {
+          if (
+            (reason === "error" ||
+              reason === "invalid_request" ||
+              reason === "rate_limited") &&
+            creditsErrorCode !== undefined
+          ) {
+            const explicitErrMsg = event.error || event.message || event.detail;
+            const gatewayRequestId =
+              event.statusCode !== 401 && typeof event.requestId === "string"
+                ? event.requestId
+                : undefined;
+            if (reason === "error") {
+              console.error(
+                `[builder-engine] stop reason=error model=${model} code=${creditsErrorCode} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(explicitErrMsg)}`,
+              );
+              if (!explicitErrMsg) {
+                captureBuilderGatewayNoDetailError({
+                  ...(gatewayRequestId !== undefined && {
+                    requestId: gatewayRequestId,
+                  }),
+                  model,
+                  ...(captureContext.gatewayUrl !== undefined && {
+                    gatewayUrl: captureContext.gatewayUrl,
+                  }),
+                  errorCode: creditsErrorCode,
+                });
+              }
+            } else if (reason === "invalid_request") {
+              console.warn(
+                `[builder-engine] stop reason=invalid_request model=${model} code=${creditsErrorCode} requestId=${gatewayRequestId ?? "(none)"} requestShape=${JSON.stringify(captureContext.requestShape)} providerMessagePresent=${Boolean(explicitErrMsg)}`,
+              );
+            }
+            if (explicitCreditsCode) await notifyBuilderCreditLimit();
+            yield stop({
+              error: String(explicitErrMsg || "Gateway error (no detail)"),
+              errorCode: creditsErrorCode,
+              upgradeUrl: await buildUpgradeUrl(),
+              ...(typeof event.requestId === "string"
+                ? { requestId: event.requestId }
+                : {}),
+            });
+          } else if (reason === "rate_limited") {
             yield stop({
               error: `rate_limit exceeded: ${event.error ?? "upstream provider rate limited"}`,
               errorCode: "rate_limited",
@@ -1464,9 +1531,6 @@ async function* parseJsonlStream(
             console.warn(
               `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} requestId=${gatewayRequestId ?? "(none)"} requestShape=${JSON.stringify(captureContext.requestShape)} providerMessagePresent=${Boolean(event.error || event.message || event.detail)}`,
             );
-            if (isExplicitBuilderCreditsLimitCode(errCode)) {
-              await notifyBuilderCreditLimit();
-            }
             yield stop({
               error: errMsg,
               errorCode: errCode,
@@ -1540,9 +1604,6 @@ async function* parseJsonlStream(
                   typeof gatewayErrCode === "string" ? gatewayErrCode : errCode,
                 message: String(errMsg),
               });
-            }
-            if (isExplicitBuilderCreditsLimitCode(errCode)) {
-              await notifyBuilderCreditLimit();
             }
             if (!explicitErrMsg) {
               captureBuilderGatewayNoDetailError({

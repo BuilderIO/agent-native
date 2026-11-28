@@ -8,6 +8,7 @@ import {
 } from "../../tracking/registry.js";
 import type { TrackingEvent } from "../../tracking/types.js";
 import { BUILDER_CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
+import { isRetryableError } from "../production-agent.js";
 import {
   BUILDER_CAPABILITIES,
   BUILDER_DEFAULT_MODEL,
@@ -15,8 +16,9 @@ import {
 } from "./builder-engine.js";
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "./credential-errors.js";
 import { DEFAULT_BUILDER_MAX_OUTPUT_TOKENS } from "./output-tokens.js";
+import { PRIVATE_COMPLETION_ERROR_MESSAGE } from "./private-completion-error.js";
 import { SYSTEM_PROMPT_CACHE_SPLIT } from "./prompt-cache.js";
-import type { EngineStreamOptions } from "./types.js";
+import { EngineError, type EngineStreamOptions } from "./types.js";
 
 const credentialState = vi.hoisted(() => ({
   builderPrivateKey: "bpk-test" as string | null,
@@ -151,6 +153,67 @@ const BASE_OPTS: EngineStreamOptions = {
 };
 
 describe("createBuilderEngine", () => {
+  it.each([
+    { reason: "error", level: "error" },
+    { reason: "invalid_request", level: "warn" },
+  ] as const)(
+    "logs safe diagnostics for streamed $reason credit errors",
+    async ({ reason, level }) => {
+      const log = vi.spyOn(console, level).mockImplementation(() => {});
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason,
+              code: "credits-limit-daily",
+              requestId: "req-credit",
+            },
+          ]),
+        ),
+      );
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+      expect(events.find((event) => event.type === "stop")).toMatchObject({
+        errorCode: "credits-limit-daily",
+        providerRetryable: false,
+      });
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining(`stop reason=${reason}`),
+      );
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining("requestId=req-credit"),
+      );
+    },
+  );
+
+  it("captures no-detail streamed credit errors without provider text", async () => {
+    const capture = vi
+      .spyOn(captureErrorModule, "captureError")
+      .mockReturnValue(undefined);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "credits-limit-daily",
+            requestId: "req-credit",
+          },
+        ]),
+      ),
+    );
+    await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    expect(capture).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "BuilderGatewayNoDetailError" }),
+      expect.objectContaining({ errorMessagePolicy: "omit" }),
+    );
+  });
+
   beforeEach(() => {
     credentialState.builderPrivateKey = "bpk-test";
     credentialState.builderPublicKey = "space-test";
@@ -1045,6 +1108,308 @@ describe("createBuilderEngine", () => {
       credentialState.clearBuilderCreditLimitNotice,
     ).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [
+      429,
+      { code: "credits-limit-daily", message: "prompt is too long" },
+      "credits-limit-daily",
+      true,
+    ],
+    [
+      500,
+      {
+        code: "gateway_error",
+        error: { code: "credits-limit-monthly", message: "Connection error" },
+      },
+      "credits-limit-monthly",
+      true,
+    ],
+    [
+      429,
+      {
+        code: "http_402",
+        error: { code: "credits-limit-daily", message: "quota exceeded" },
+      },
+      "credits-limit-daily",
+      true,
+    ],
+    [
+      500,
+      {
+        code: "gateway_error",
+        error: { code: "http_402", message: "quota exceeded" },
+      },
+      "http_402",
+      false,
+    ],
+    [
+      402,
+      { code: "payment_required", message: "Payment required" },
+      "http_402",
+      false,
+    ],
+  ])(
+    "handles HTTP %i with credit details %j",
+    async (status, body, errorCode, explicit) => {
+      oauthState.ownerEmail = "owner@example.com";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(jsonErrorResponse(status, body)),
+      );
+
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+      const stop = events.find((event) => event.type === "stop");
+      expect(stop).toMatchObject({
+        reason: "error",
+        errorCode,
+        providerRetryable: false,
+        upgradeUrl: AGENT_NATIVE_UPGRADE_URL,
+      });
+      expect(stop.contextOverflow).toBeUndefined();
+      expect(isRetryableError(new EngineError(stop.error, stop))).toBe(false);
+      expect(
+        credentialState.sendBuilderCreditLimitNotice,
+      ).toHaveBeenCalledTimes(explicit ? 1 : 0);
+    },
+  );
+
+  it.each([
+    [
+      "error",
+      {
+        errorCode: "gateway_error",
+        code: "credits-limit-daily",
+        statusCode: 500,
+        error: "Connection error",
+      },
+      "credits-limit-daily",
+      true,
+    ],
+    [
+      "invalid_request",
+      {
+        errorCode: "credits-limit-monthly",
+        code: "http_402",
+        statusCode: 429,
+        error: "prompt is too long",
+      },
+      "credits-limit-monthly",
+      true,
+    ],
+    [
+      "rate_limited",
+      { code: "credits-limit-daily", statusCode: 429, error: "quota exceeded" },
+      "credits-limit-daily",
+      true,
+    ],
+    [
+      "rate_limited",
+      { code: "gateway_error", statusCode: 402, error: "quota exceeded" },
+      "http_402",
+      false,
+    ],
+    [
+      "error",
+      {
+        errorCode: "gateway_error",
+        code: " HTTP_402 ",
+        statusCode: 429,
+        error: "quota exceeded",
+      },
+      "http_402",
+      false,
+    ],
+  ])(
+    "keeps streamed %s credit failures terminal",
+    async (reason, details, errorCode, explicit) => {
+      oauthState.ownerEmail = "owner@example.com";
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            jsonlResponse([{ type: "stop", reason, ...details }]),
+          ),
+      );
+
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+      const stop = events.find((event) => event.type === "stop");
+      expect(stop).toMatchObject({
+        reason: "error",
+        errorCode,
+        providerRetryable: false,
+        upgradeUrl: AGENT_NATIVE_UPGRADE_URL,
+      });
+      expect(stop.contextOverflow).toBeUndefined();
+      expect(isRetryableError(new EngineError(stop.error, stop))).toBe(false);
+      expect(
+        credentialState.sendBuilderCreditLimitNotice,
+      ).toHaveBeenCalledTimes(explicit ? 1 : 0);
+    },
+  );
+
+  it("retains the top-level non-credit code for a transient HTTP rejection", async () => {
+    oauthState.ownerEmail = "owner@example.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(429, {
+          code: "rate_limited",
+          error: { code: "gateway_error", message: "quota exceeded" },
+        }),
+      ),
+    );
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((event) => event.type === "stop");
+    expect(stop).toMatchObject({
+      reason: "error",
+      errorCode: "rate_limited",
+      statusCode: 429,
+      providerRetryable: true,
+    });
+    expect(stop.upgradeUrl).toBeUndefined();
+    expect(isRetryableError(new EngineError(stop.error, stop))).toBe(true);
+    expect(credentialState.sendBuilderCreditLimitNotice).not.toHaveBeenCalled();
+  });
+
+  it("keeps an ordinary streamed rate limit retryable without credit side effects", async () => {
+    oauthState.ownerEmail = "owner@example.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "rate_limited",
+            statusCode: 429,
+            error: "quota exceeded",
+          },
+        ]),
+      ),
+    );
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((event) => event.type === "stop");
+    expect(stop).toMatchObject({
+      reason: "error",
+      errorCode: "rate_limited",
+      providerRetryable: true,
+    });
+    expect(stop.upgradeUrl).toBeUndefined();
+    expect(isRetryableError(new EngineError(stop.error, stop))).toBe(true);
+    expect(credentialState.sendBuilderCreditLimitNotice).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "error",
+      "credits-limit-daily",
+      429,
+      "private_completion_error",
+      undefined,
+    ],
+    [
+      "invalid_request",
+      "credits-limit-monthly",
+      500,
+      "private_completion_error",
+      undefined,
+    ],
+    ["rate_limited", "gateway_error", 402, "http_402", 402],
+  ])(
+    "redacts private streamed %s credit errors while keeping them terminal",
+    async (reason, code, statusCode, expectedCode, expectedStatus) => {
+      const canary = "synthetic-private-payload-canary";
+      const logs = ["log", "warn", "error"].map((level) =>
+        vi
+          .spyOn(console, level as "log" | "warn" | "error")
+          .mockImplementation(() => {}),
+      );
+      oauthState.ownerEmail = "owner@example.com";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason,
+              errorCode: "gateway_error",
+              code,
+              statusCode,
+              error: `prompt is too long ${canary}`,
+              requestId: canary,
+            },
+          ]),
+        ),
+      );
+
+      const events = await collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, privateContent: true }),
+      );
+      const stop = events.find((event) => event.type === "stop");
+      expect(stop).toMatchObject({
+        reason: "error",
+        error: PRIVATE_COMPLETION_ERROR_MESSAGE,
+        errorCode: expectedCode,
+        provider: "builder",
+        providerRetryable: false,
+      });
+      expect(stop.statusCode).toBe(expectedStatus);
+      expect(stop.upgradeUrl).toBeUndefined();
+      expect(stop.contextOverflow).toBeUndefined();
+      expect(isRetryableError(new EngineError(stop.error, stop))).toBe(false);
+      expect(JSON.stringify(events)).not.toContain(canary);
+      expect(JSON.stringify(events)).not.toContain(code);
+      expect(JSON.stringify(logs.map((log) => log.mock.calls))).not.toContain(
+        canary,
+      );
+      expect(
+        credentialState.sendBuilderCreditLimitNotice,
+      ).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [402, false],
+    [429, true],
+  ])(
+    "redacts private HTTP %i without reading its body or notifying credits",
+    async (status, retryable) => {
+      const canary = "synthetic-private-http-canary";
+      oauthState.ownerEmail = "owner@example.com";
+      const response = jsonErrorResponse(status, {
+        code: "credits-limit-daily",
+        message: canary,
+      });
+      const readBody = vi.spyOn(response, "text");
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+      const events = await collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, privateContent: true }),
+      );
+      const stop = events.find((event) => event.type === "stop");
+      expect(stop).toMatchObject({
+        reason: "error",
+        error: PRIVATE_COMPLETION_ERROR_MESSAGE,
+        errorCode: `http_${status}`,
+        statusCode: status,
+      });
+      expect(stop.providerRetryable).toBe(retryable ? undefined : false);
+      expect(stop.upgradeUrl).toBeUndefined();
+      expect(isRetryableError(new EngineError(stop.error, stop))).toBe(
+        retryable,
+      );
+      expect(JSON.stringify(events)).not.toContain(canary);
+      expect(JSON.stringify(events)).not.toContain("credits-limit-daily");
+      expect(readBody).not.toHaveBeenCalled();
+      expect(
+        credentialState.sendBuilderCreditLimitNotice,
+      ).not.toHaveBeenCalled();
+    },
+  );
 
   it("routes upgradeUrl to the org-agnostic subscription page with Agent-Native attribution", async () => {
     credentialState.builderOrgName = "Acme Corp";
