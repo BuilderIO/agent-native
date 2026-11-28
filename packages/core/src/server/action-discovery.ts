@@ -1,6 +1,7 @@
 import nodePath from "node:path";
 
 import {
+  isActionReadOnly,
   isDefinedAction,
   type DefinedAction,
 } from "@agent-native/actions/contract";
@@ -103,6 +104,17 @@ function adaptPortableAction(def: DefinedAction, name: string): ActionEntry {
         : undefined;
   const authorizeFn = def.authorize;
   const needsApproval = def.needsApproval;
+  const mcpAnnotations =
+    def.destructive !== undefined
+      ? {
+          readOnlyHint: isActionReadOnly(def),
+          destructiveHint: Boolean(def.destructive),
+          openWorldHint: false,
+          ...(def.retrySafe !== undefined
+            ? { idempotentHint: def.retrySafe }
+            : {}),
+        }
+      : undefined;
 
   // guard:allow-no-output-schema — adapts user-authored portable actions and forwards def.outputSchema when declared
   const coreDef = defineAction({
@@ -120,6 +132,7 @@ function adaptPortableAction(def: DefinedAction, name: string): ActionEntry {
     ...(def.mcpOutputSchema !== undefined
       ? { mcpOutputSchema: def.mcpOutputSchema }
       : {}),
+    ...(mcpAnnotations !== undefined ? { mcpAnnotations } : {}),
     ...(authorizeFn
       ? {
           authorize: (args: unknown, ctx?: unknown) =>
@@ -137,6 +150,12 @@ function adaptPortableAction(def: DefinedAction, name: string): ActionEntry {
       : {}),
     run: (args: unknown, ctx?: unknown) => def.run(args as never, ctx as never),
   } as Parameters<typeof defineAction>[0]);
+
+  if (def.toolSchema && !def.schema && def.toolSchema["type"] === "object") {
+    coreDef.tool.parameters = def.toolSchema as unknown as NonNullable<
+      ActionTool["parameters"]
+    >;
+  }
 
   return {
     tool: coreDef.tool,

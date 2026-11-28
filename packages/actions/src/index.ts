@@ -55,6 +55,7 @@ export type {
 } from "./registry.js";
 
 export {
+  coerceGatewayStringifiedArgs,
   normalizeLlmToolInput,
   schemaToJsonSchema,
   validateInputSchema,

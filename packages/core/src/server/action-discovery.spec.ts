@@ -1228,4 +1228,43 @@ describe("@agent-native/actions contract interop", () => {
     expect(coreErr).toBeInstanceOf(ActionError);
     expect(isActionError(coreErr)).toBe(true);
   });
+
+  it("preserves destructive MCP annotations, toolSchema fallback, authorize, and needsApproval", async () => {
+    const portableDelete = definePortableAction({
+      description: "Delete a portable item",
+      toolSchema: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      },
+      destructive: true,
+      retrySafe: false,
+      needsApproval: true,
+      authorize: (_input, ctx) => Boolean(ctx),
+      run: async (input) => ({ deleted: (input as { id: string }).id }),
+    });
+
+    const registry = loadActionsFromStaticRegistry({
+      "delete-item": { default: portableDelete },
+    });
+
+    const entry = registry["delete-item"];
+    expect(entry).toBeDefined();
+    expect(entry.mcpAnnotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+      idempotentHint: false,
+    });
+    expect(entry.tool.parameters).toEqual({
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    });
+    expect(entry.needsApproval).toBe(true);
+    await expect(entry.run({ id: "x1" })).rejects.toThrow();
+    expect(await entry.run({ id: "x1" }, { caller: "tool" })).toEqual({
+      deleted: "x1",
+    });
+  });
 });

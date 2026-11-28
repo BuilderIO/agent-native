@@ -42,7 +42,8 @@ add a sample read and write action in actions/, and verify with \`pnpm action --
           id: "qs-cli-install",
           data: {
             language: "bash",
-            code: `npx @agent-native/actions init`,
+            code: `pnpm add @agent-native/actions zod
+npx @agent-native/actions init`,
           },
         },
       ],
@@ -65,12 +66,12 @@ npx @agent-native/actions skill`,
   ]}
 />
 
-`init` inspects `package.json`, installs `.agents/skills/agent-native-actions/SKILL.md`, adds `"action": "actions"` to `scripts`, and wires the minimal integration for your stack:
+`init` inspects `package.json`, installs `.agents/skills/agent-native-actions/SKILL.md`, creates `actions/hello.ts`, generates `.generated/actions.ts` and `.generated/action-types.d.ts`, adds `"action": "actions"` to `scripts`, and scaffolds the catch-all route for your stack:
 
-- **Next.js:** wraps `next.config.ts` with `withAgentNativeActions()` and creates `app/api/agent-native/[...path]/route.ts`.
-- **Vite (React, SolidJS, Vue, Svelte):** adds `agentNativeActionsPlugin()` to `vite.config.ts`.
-- **Nuxt / SvelteKit:** adds the Nuxt module or Vite plugin plus one catch-all server handler.
-- **Plain Node / TypeScript:** creates `actions/` and `.generated/actions.ts`.
+- **Next.js:** creates `app/api/agent-native/[...path]/route.ts` and prints the 1-line `withAgentNativeActions()` wrapper to add to `next.config.ts`.
+- **Vite (React, SolidJS, Vue, Svelte):** prints the 1-line `agentNativeActionsPlugin()` entry to add to `vite.config.ts`.
+- **Nuxt / SvelteKit:** creates the catch-all server handler and prints the 1-line `nuxt.config.ts` or `vite.config.ts` plugin entry.
+- **Plain Node / TypeScript:** creates `actions/hello.ts` and `.generated/actions.ts` with no web server required.
 
 ## 2. Define Actions {#define-action}
 
@@ -123,101 +124,26 @@ Running your dev server (or `npx @agent-native/actions generate`) writes two fil
 
 ### UI Hooks {#call-from-ui}
 
-<TabsBlock
-  id="quickstart-ui-hooks-tabs"
-  tabs={[
-    {
-      id: "react",
-      label: "React",
-      blocks: [
-        {
-          type: "code",
-          id: "qs-ui-react",
-          data: {
-            language: "tsx",
-            code: `import { useActionQuery, useActionMutation } from "@agent-native/actions/react";
+```tsx
+import { useActionQuery, useActionMutation } from "@agent-native/actions/react";
 
 export function TodoList() {
   const { data: todos } = useActionQuery("list-todos", { done: false });
   const createTodo = useActionMutation("create-todo");
 
-return (
+  return (
+    <button onClick={() => createTodo.mutate({ title: "Ship docs" })}>
+      Add todo ({todos?.length ?? 0})
+    </button>
+  );
+}
+```
 
-<button onClick={() => createTodo.mutate({ title: "Ship docs" })}>
-Add todo ({todos?.length ?? 0})
-</button>
-);
-}`,
-          },
-        },
-      ],
-    },
-    {
-      id: "solid",
-      label: "SolidJS",
-      blocks: [
-        {
-          type: "code",
-          id: "qs-ui-solid",
-          data: {
-            language: "tsx",
-            code: `import { createActionQuery, createActionMutation } from "@agent-native/actions/solid";
+Using another UI framework? Import the matching binding:
 
-export function TodoList() {
-  const todos = createActionQuery("list-todos", () => ({ done: false }));
-  const createTodo = createActionMutation("create-todo");
-
-return (
-
-<button onClick={() => createTodo.mutate({ title: "Ship docs" })}>
-Add todo ({todos()?.length ?? 0})
-</button>
-);
-}`,
-          },
-        },
-      ],
-    },
-    {
-      id: "vue",
-      label: "Vue",
-      blocks: [
-        {
-          type: "code",
-          id: "qs-ui-vue",
-          data: {
-            language: "ts",
-            code: `import { useActionQuery, useActionMutation } from "@agent-native/actions/vue";
-
-const { data: todos } = useActionQuery("list-todos", { done: false });
-const createTodo = useActionMutation("create-todo");
-
-createTodo.mutate({ title: "Ship docs" });`,
-          },
-        },
-      ],
-    },
-    {
-      id: "svelte",
-      label: "Svelte 5",
-      blocks: [
-        {
-          type: "code",
-          id: "qs-ui-svelte",
-          data: {
-            language: "ts",
-            code: `import { createActionQuery, createActionMutation } from "@agent-native/actions/svelte";
-
-const todos = createActionQuery("list-todos", () => ({ done: false }));
-const createTodo = createActionMutation("create-todo");
-
-createTodo.mutate({ title: "Ship docs" });`,
-},
-},
-],
-},
-]}
-/>
+- **SolidJS (`@agent-native/actions/solid`):** `createActionQuery("list-todos", () => ({ done: false }))` & `createActionMutation("create-todo")` — see [SolidJS](/docs/actions-package-solid).
+- **Vue 3 (`@agent-native/actions/vue`):** `useActionQuery("list-todos", () => ({ done: false }))` & `useActionMutation("create-todo")` — see [Vue & Nuxt](/docs/actions-package-vue).
+- **Svelte 5 (`@agent-native/actions/svelte`):** `createActionQuery("list-todos", () => ({ done: false }))` & `createActionMutation("create-todo")` — see [Svelte & SvelteKit](/docs/actions-package-svelte).
 
 Mutations invalidate active queries by default. Pass `invalidate: ["list-todos"]` to scope invalidation or `invalidate: false` to disable it.
 
