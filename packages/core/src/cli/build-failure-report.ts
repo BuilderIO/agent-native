@@ -1,3 +1,5 @@
+import { constants } from "node:os";
+
 import { KnownCliError } from "./telemetry-sanitize.js";
 
 export interface BuildStepFailureInput {
@@ -9,8 +11,8 @@ export interface BuildStepFailureInput {
 
 /**
  * The error and context for a build step that exited non-zero. The message
- * names only the step: the template is a tag, so one failing step is one issue
- * instead of one per template. The step's output stays on the machine, because
+ * names only the step: the template is a tag, so failures group across templates.
+ * The step's output stays on the machine, because
  * build logs hold paths, project names and secrets.
  */
 export function buildStepFailureReport(input: BuildStepFailureInput): {
@@ -29,6 +31,9 @@ export function buildStepFailureReport(input: BuildStepFailureInput): {
       "build-step",
       input.label,
       input.signal ? "signal" : "failed",
+      ...(input.signal && Object.hasOwn(constants.signals, input.signal)
+        ? [input.signal]
+        : []),
     ],
     tags: {
       source: "build-step",
