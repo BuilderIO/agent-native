@@ -133,7 +133,45 @@ describe("executeAgentToolCall", () => {
 
     expect(run).not.toHaveBeenCalled();
     expect(result.status).toBe("failed");
+    expect(result).toMatchObject({ beforeExecution: true });
     expect(result.output).toContain("Invalid action parameters for inspect");
+  });
+
+  it("marks a beforeWrite rejection as a failure before execution", async () => {
+    const run = vi.fn(async () => "should not run");
+
+    const result = await executeAgentToolCall({
+      actions: { publish: action(run, { readOnly: false }) },
+      name: "publish",
+      input: { value: "public" },
+      callId: "call-before-write",
+      beforeWrite: async () => {
+        throw new Error("write fence rejected the call");
+      },
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(result.status).toBe("failed");
+    expect(result).toMatchObject({ beforeExecution: true });
+    expect(result.output).toContain("write fence rejected the call");
+  });
+
+  it("does not mark an executed handler failure as beforeExecution", async () => {
+    const run = vi.fn(async () => {
+      throw new Error("The mail provider rejected the message.");
+    });
+
+    const result = await executeAgentToolCall({
+      actions: { publish: action(run, { readOnly: false }) },
+      name: "publish",
+      input: { value: "public" },
+      callId: "call-executed-failure",
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(result.status).toBe("failed");
+    expect(result).not.toHaveProperty("beforeExecution");
+    expect(result.output).toContain("The mail provider rejected the message.");
   });
 
   it("does not expose actions hidden from the agent", async () => {
@@ -150,6 +188,7 @@ describe("executeAgentToolCall", () => {
     expect(result).toEqual({
       status: "failed",
       output: "Unknown or unavailable tool: hidden",
+      beforeExecution: true,
     });
   });
 

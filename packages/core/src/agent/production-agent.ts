@@ -275,6 +275,10 @@ import {
   approvalKeyWithArguments,
 } from "./approval-key.js";
 import {
+  approvedToolCallContinuationMessage,
+  approvedToolCallDidNotRunMessage,
+  approvedToolCallFailedMessage,
+  approvedToolCallNotExecutedMessage,
   CONTINUE_UNAVAILABLE_CODE,
   type ContinueTrigger,
 } from "./auto-continue.js";
@@ -6133,6 +6137,8 @@ export type AgentToolCallExecutionResult =
       /** Set when known: a call can fail after its side effect completed. */
       completedSideEffect?: boolean;
       terminalError?: Extract<AgentChatEvent, { type: "error" }>;
+      /** The action never executed: the failure happened before its invocation. */
+      beforeExecution?: true;
     };
 
 export interface ExecuteAgentToolCallOptions {
@@ -6190,8 +6196,20 @@ export async function executeAgentToolCall(
     return {
       status: "failed",
       output: `Unknown or unavailable tool: ${options.name}`,
+      beforeExecution: true,
     };
   }
+  const invocation = { started: false };
+  const actions: Record<string, ActionEntry> = {
+    ...options.actions,
+    [options.name]: {
+      ...entry,
+      run: (args, context) => {
+        invocation.started = true;
+        return entry.run(args, context);
+      },
+    },
+  };
 
   let streamCalls = 0;
   const engine: AgentEngine = {
@@ -6241,7 +6259,7 @@ export async function executeAgentToolCall(
   };
   const controller = options.signal ? null : new AbortController();
   const signal = options.signal ?? controller!.signal;
-  const tools = actionsToEngineTools(options.actions);
+  const tools = actionsToEngineTools(actions);
 
   try {
     await runAgentLoop({
@@ -6261,7 +6279,7 @@ export async function executeAgentToolCall(
           ],
         },
       ],
-      actions: options.actions,
+      actions,
       send,
       signal,
       ownerEmail: options.ownerEmail,
@@ -6305,6 +6323,7 @@ export async function executeAgentToolCall(
     return {
       status: "failed",
       output: sanitizeToolErrorValue(error),
+      ...(invocation.started ? {} : { beforeExecution: true as const }),
     };
   }
 
@@ -6335,24 +6354,30 @@ export async function executeAgentToolCall(
     typeof completed?.completedSideEffect === "boolean"
       ? { completedSideEffect: completed.completedSideEffect }
       : {};
+  const beforeExecutionUnlessInvoked = invocation.started
+    ? {}
+    : { beforeExecution: true as const };
   if (terminalError) {
     return {
       status: "failed",
       output: completed?.result ?? terminalError.error,
       ...completedEffect,
       terminalError,
+      ...beforeExecutionUnlessInvoked,
     };
   }
   if (!completed) {
     return {
       status: "failed",
       output: `The ${options.name} tool did not return a result.`,
+      ...beforeExecutionUnlessInvoked,
     };
   }
   return {
     status: completed.isError ? "failed" : "completed",
     output: completed.result,
     ...completedEffect,
+    ...(completed.isError ? beforeExecutionUnlessInvoked : {}),
   };
 }
 
@@ -8688,10 +8713,10 @@ export async function runAgentLoop(opts: {
   let loopBreakerCloseout: TerminalActionStop | null = null;
   let loopBreakerStopped = false;
   const sendTerminalActionStop = (stop: TerminalActionStop) => {
-    if (
-      stop.errorCode === "needs-approval" ||
-      stop.errorCode === "awaiting-user-input"
-    ) {
+    if (stop.errorCode === "needs-approval") {
+      return;
+    }
+    if (stop.errorCode === "awaiting-user-input") {
       send({ type: "text", text: stop.transcriptMessage ?? stop.message });
       return;
     }
@@ -10718,6 +10743,11 @@ export async function runAgentLoop(opts: {
           const approvalLabel = isPrivateCall()
             ? undefined
             : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
+          const waitingMessage = `Waiting for your approval to run ${toolCall.name}.`;
+          if (!sentApprovalTranscriptTexts.has(waitingMessage)) {
+            sentApprovalTranscriptTexts.add(waitingMessage);
+            await send({ type: "text", text: waitingMessage });
+          }
           await send({
             type: "tool_start",
             id: toolCall.id,
@@ -10765,7 +10795,7 @@ export async function runAgentLoop(opts: {
             `approved; do not retry it before then. Once approved, re-emit ` +
             `this exact call once so it can run, then summarize its result.`;
           requestedActionStop ??= {
-            message: `Waiting for your approval to run ${toolCall.name}.`,
+            message: waitingMessage,
             errorCode: "needs-approval",
           };
           const transcriptText = `Waiting for your approval to run ${toolCall.name}.`;
@@ -10776,10 +10806,6 @@ export async function runAgentLoop(opts: {
               text: transcriptText,
             });
             approvalTranscriptCallIds.add(toolCall.id);
-          }
-          if (!sentApprovalTranscriptTexts.has(transcriptText)) {
-            await send({ type: "text", text: transcriptText });
-            sentApprovalTranscriptTexts.add(transcriptText);
           }
           requestedActionStopTranscriptSent = true;
           await emitToolDone({
@@ -14816,6 +14842,61 @@ export function resolveAgentModelSelection(options: {
   return { model: options.defaultModel, source: "default" };
 }
 
+function boundedPromptSpanIndex(region: string, prompt: string): number {
+  if (!prompt) return -1;
+  if (region === prompt) return 0;
+  let from = 0;
+  while (from <= region.length - prompt.length) {
+    const at = region.indexOf(prompt, from);
+    if (at < 0) return -1;
+    const beforeOk = at === 0 || /\s/.test(region.charAt(at - 1));
+    const afterOk =
+      at + prompt.length === region.length ||
+      /\s/.test(region.charAt(at + prompt.length));
+    if (beforeOk && afterOk) return at;
+    from = at + 1;
+  }
+  return -1;
+}
+
+function replaceUserPromptInMessages(
+  messages: EngineMessage[],
+  requestContextText: string,
+  from: string,
+  to: string,
+): void {
+  const prompt = from.trim();
+  const replacement = to.trim();
+  if (!prompt || prompt === replacement) return;
+  const current = messages.at(-1);
+  if (!current || current.role !== "user") return;
+  const textPart = [...current.content]
+    .reverse()
+    .find(
+      (part): part is Extract<EngineContentPart, { type: "text" }> =>
+        part.type === "text",
+    );
+  if (!textPart) return;
+  const messageRegion = textPart.text.slice(
+    0,
+    textPart.text.length - requestContextText.length,
+  );
+  const promptAt = boundedPromptSpanIndex(messageRegion, prompt);
+  const requestContext = textPart.text.slice(
+    textPart.text.length - requestContextText.length,
+  );
+  if (promptAt < 0) {
+    if (messageRegion.includes(replacement)) return;
+    textPart.text = `${messageRegion}\n\n${replacement}${requestContext}`;
+    return;
+  }
+  textPart.text =
+    messageRegion.slice(0, promptAt) +
+    replacement +
+    messageRegion.slice(promptAt + prompt.length) +
+    requestContext;
+}
+
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
@@ -16072,6 +16153,10 @@ export function createProductionAgentHandler(
           ),
         ]
       : requestedApprovedToolCalls;
+    const approvedContinuationCallerPrompt =
+      approvedToolCallsForExecution?.length ? requestMessage : undefined;
+    const approvedContinuationOriginalPrompt =
+      approvedToolCallsForExecution?.length ? requestMessage : undefined;
     const resolvedApprovalTurnId =
       ownerEmail && threadId && approvedToolCallsForExecution?.length
         ? await resolveAgentToolApprovalTurnId({
@@ -17674,18 +17759,18 @@ export function createProductionAgentHandler(
         ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
         : "";
 
+    const requestContextText =
+      screenContext +
+      prefetchNote +
+      priorConnectionContextNote(priorConnection) +
+      filesContext +
+      planModeAgentNote +
+      (requestContextAttachments.length > 0
+        ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
+        : "") +
+      (requestContextNote ? `\n\n${requestContextNote}` : "");
     const userContent = buildUserContentWithAttachments({
-      text:
-        enrichedMessage +
-        screenContext +
-        prefetchNote +
-        priorConnectionContextNote(priorConnection) +
-        filesContext +
-        planModeAgentNote +
-        (requestContextAttachments.length > 0
-          ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
-          : "") +
-        (requestContextNote ? `\n\n${requestContextNote}` : ""),
+      text: enrichedMessage + requestContextText,
       attachments: [...requestContextAttachments, ...requestAttachments],
       vision: modelSupportsVision,
       textAttachmentStorage,
@@ -17729,9 +17814,11 @@ export function createProductionAgentHandler(
         return { earlyResponse: null };
       }
       if (
-        typeof requestTurnId === "string" &&
-        requestTurnId &&
-        (await isTurnAborted(threadId, requestTurnId))
+        (typeof requestTurnId === "string" &&
+          requestTurnId &&
+          (await isTurnAborted(threadId, requestTurnId))) ||
+        (resolvedApprovalTurnId &&
+          (await isTurnAborted(threadId, resolvedApprovalTurnId)))
       ) {
         return { earlyResponse: { ok: true, stopped: true } };
       }
@@ -17769,6 +17856,12 @@ export function createProductionAgentHandler(
         await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
+          ...(typeof requestTurnId === "string" &&
+          requestTurnId.trim() &&
+          resolvedApprovalTurnId &&
+          requestTurnId.trim() !== resolvedApprovalTurnId
+            ? { alsoAbortedTurnIds: [requestTurnId.trim()] }
+            : {}),
           ...(admittedQueuedMessage?.interruptActiveRun === true
             ? { interruptApprovalPause: true }
             : {}),
@@ -19317,7 +19410,38 @@ export function createProductionAgentHandler(
               (approvedExecution.status === "failed" &&
                 approvedExecution.terminalError)
             ) {
+              if (approvedContinuationOriginalPrompt !== undefined) {
+                replaceUserPromptInMessages(
+                  messages,
+                  requestContextText,
+                  approvedContinuationOriginalPrompt,
+                  approvedToolCallDidNotRunMessage(
+                    approvedContinuationCallerPrompt,
+                  ),
+                );
+              }
               return;
+            }
+            if (approvedContinuationOriginalPrompt !== undefined) {
+              const continuation =
+                approvedExecution.status === "failed"
+                  ? approvedExecution.beforeExecution === true
+                    ? approvedToolCallNotExecutedMessage(
+                        approvedContinuationCallerPrompt,
+                      )
+                    : approvedToolCallFailedMessage(
+                        approvedContinuationCallerPrompt,
+                      )
+                  : approvedToolCallContinuationMessage(
+                      approvedContinuationCallerPrompt,
+                    );
+              replaceUserPromptInMessages(
+                messages,
+                requestContextText,
+                approvedContinuationOriginalPrompt,
+                continuation,
+              );
+              mutableBody.message = continuation;
             }
             if (isBackgroundWorker) return;
             if (privateRequestHistory) {

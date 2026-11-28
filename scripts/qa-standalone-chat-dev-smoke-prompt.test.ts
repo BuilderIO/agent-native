@@ -6,7 +6,7 @@ import { originalUserPrompt } from "./qa-standalone-chat-dev-smoke-prompt";
 const approvalPrompt =
   "Call accept-agentkit-release with release agentkit-acceptance for production and wait for my approval.";
 const approvedContinuationPrompt =
-  "The approved action has run. Do not repeat it; use its result in your reply.";
+  "Approved. The requested action has already been run. Continue from its result; do not run that same action again.";
 
 describe("standalone chat smoke prompt normalization", () => {
   it("maps an approved continuation with appended framework context", () => {

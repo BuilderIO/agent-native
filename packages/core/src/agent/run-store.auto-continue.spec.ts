@@ -207,6 +207,53 @@ describe("automatic continuation admission", () => {
   });
 });
 
+describe("approval continuation abort ids", () => {
+  async function storedTurnWithFreeSlot() {
+    seq += 1;
+    const { insertRun, updateRunStatusIfRunning } = await freshRunStore();
+    const thread = `thread-approval-abort-${seq}`;
+    const storedTurn = `turn-stored-${seq}`;
+    const clientTurn = `turn-client-${seq}`;
+    const run = `run-stored-${seq}`;
+    await insertRun(run, thread, storedTurn, { dispatchMode: "foreground" });
+    await updateRunStatusIfRunning(run, "truncated");
+    return { thread, storedTurn, clientTurn, run };
+  }
+
+  it("refuses a claim when a client continuation turn was stopped", async () => {
+    const { thread, storedTurn, clientTurn, run } =
+      await storedTurnWithFreeSlot();
+    const { tryClaimRunSlot, markTurnAborted } = await freshRunStore();
+    await markTurnAborted(thread, clientTurn, "user");
+
+    const slot = await tryClaimRunSlot(thread, `${run}-next`, undefined, {
+      turnId: storedTurn,
+      alsoAbortedTurnIds: [clientTurn],
+      dispatchMode: "foreground",
+    });
+
+    expect(slot).toEqual({
+      claimed: false,
+      activeRunId: null,
+      turnAborted: true,
+    });
+  });
+
+  it("still admits the stored turn when only a different client turn was stopped", async () => {
+    const { thread, storedTurn, clientTurn, run } =
+      await storedTurnWithFreeSlot();
+    const { tryClaimRunSlot, markTurnAborted } = await freshRunStore();
+    await markTurnAborted(thread, clientTurn, "user");
+
+    const slot = await tryClaimRunSlot(thread, `${run}-next`, undefined, {
+      turnId: storedTurn,
+      dispatchMode: "foreground",
+    });
+
+    expect(slot).toEqual({ claimed: true, activeRunId: null });
+  });
+});
+
 describe("continuation a person chose", () => {
   async function crashedRun() {
     seq += 1;

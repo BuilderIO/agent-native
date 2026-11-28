@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "ec9702f606fbb6485a4ecde465328c85e33d5ea5",
+    "syncCommit": "38fc60e1951f8aea486e4beae14e58eb94cfe5a4",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -188,7 +188,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "tryClaimRunSlot",
-        "sha256": "e6126146016be0bd2737352c53137222aab4b3c64235bfb5622d43776ec233da"
+        "sha256": "dd08c4c2663fd87548c6beabca0fed9db7e1519128c0daab24a95f12fb13c684"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",

@@ -443,11 +443,9 @@ export async function resolveAgentToolApprovalTurnId(binding: {
   );
   const requestedTurnId = binding.requestedTurnId?.trim();
   if (binding.approvalId) {
-    if (turnIds.size !== 1) return null;
-    const exactTurnId = [...turnIds][0]!;
-    return requestedTurnId && requestedTurnId !== exactTurnId
-      ? null
-      : exactTurnId;
+    const [exactTurnId] = turnIds;
+    if (turnIds.size !== 1 || !exactTurnId) return null;
+    return exactTurnId;
   }
   if (requestedTurnId && turnIds.has(requestedTurnId)) return requestedTurnId;
   return turnIds.size === 1 ? [...turnIds][0]! : null;

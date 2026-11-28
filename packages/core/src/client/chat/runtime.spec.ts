@@ -10,6 +10,7 @@ import {
 } from "vitest";
 
 import { approvalKeyForHistory } from "../../agent/approval-key.js";
+import { APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT } from "../../agent/auto-continue.js";
 import { isLlmCredentialError } from "../../agent/engine/credential-errors.js";
 import { RUN_NOT_STARTED_METADATA_KEY } from "../../shared/agent-chat-run-not-started.js";
 import {
@@ -1641,7 +1642,7 @@ describe("createAgentNativeChatRuntime", () => {
     });
     expect(initialBody.agentKitMessageId).toBeTypeOf("string");
     expect(continuationBody.message).toBe(
-      "The approved action has run. Do not repeat it; use its result in your reply.",
+      APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
     );
     expect(continuationBody).not.toHaveProperty("submissionPayload");
     expect(continuationBody.approvedToolCalls).toEqual([approvalKey]);
@@ -6730,6 +6731,307 @@ describe("createAgentNativeChatRuntime", () => {
     expect(nextRequest).not.toHaveProperty("approvedToolCalls");
   });
 
+  it("does not ask the model to rerun an approved call and keeps waiting text before the result", async () => {
+    const approvedInput = { path: "skills/pop-song/SKILL.md" };
+    const approvalKey = `resources:${JSON.stringify(approvedInput)}`;
+    const approvalAskId = "agent-tool-approval-ask-repeat";
+    const waitingText = "Waiting for your approval to run resources.";
+    const resultText = "Wrote resource: skills/pop-song/SKILL.md (12 bytes)";
+    const doneText = "Done — I created the shared skill.";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "text", text: waitingText },
+          {
+            type: "tool_start",
+            id: "call-write",
+            tool: "resources",
+            input: approvedInput,
+          },
+          {
+            type: "approval_required",
+            tool: "resources",
+            input: approvedInput,
+            approvalKey,
+            askId: approvalAskId,
+            toolCallId: "call-write",
+          },
+          {
+            type: "tool_done",
+            id: "call-write",
+            tool: "resources",
+            result: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_start",
+            id: "call-write",
+            tool: "resources",
+            input: approvedInput,
+          },
+          {
+            type: "tool_done",
+            id: "call-write",
+            tool: "resources",
+            result: resultText,
+            completedSideEffect: true,
+            approvalPause: false,
+          },
+          { type: "text", text: doneText },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-approved-repeat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-approved-repeat",
+      threadId: "thread-approved-repeat",
+    });
+    const first = await session.startTurn({ prompt: "Make a shared skill" });
+    const firstEvents = await drain(first.events);
+    const initialMessage = firstEvents.find(
+      (event) => event.type === "message-start",
+    );
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: { id: approvalAskId, approved: true },
+    });
+    expect(continuation).toBeDefined();
+    if (!continuation) {
+      throw new Error("expected an approval continuation");
+    }
+    const continuationEvents = await drain(continuation.events);
+
+    const approvalRequest = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(approvalRequest.message).toBe(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT);
+    expect(approvalRequest.message).not.toContain("Go ahead and run");
+    expect(approvalRequest).not.toHaveProperty("approvedContinuationPrompt");
+
+    const completedMessage = continuationEvents.find(
+      (event) => event.type === "message-done",
+    );
+    expect(completedMessage).toMatchObject({
+      type: "message-done",
+      message: {
+        id:
+          initialMessage?.type === "message-start"
+            ? initialMessage.message.id
+            : undefined,
+        content: [
+          { type: "text", text: waitingText },
+          { type: "text", text: doneText },
+        ],
+      },
+    });
+
+    const historyTexts = (
+      (approvalRequest.structuredHistory ?? []) as Array<{
+        content: Array<Record<string, unknown>>;
+      }>
+    )
+      .flatMap((message) => message.content)
+      .flatMap((part) => {
+        if (part.type === "text" && typeof part.text === "string") {
+          return [part.text];
+        }
+        if (part.type === "tool-result" && typeof part.content === "string") {
+          return [part.content];
+        }
+        return [];
+      });
+    const waitingInApprovalHistory = historyTexts.findIndex((text) =>
+      text.includes("Waiting for your approval to run resources."),
+    );
+    const pauseResultAt = historyTexts.findIndex((text) =>
+      text.includes("Awaiting human approval"),
+    );
+    expect(waitingInApprovalHistory).toBeGreaterThanOrEqual(0);
+    expect(pauseResultAt).toBeGreaterThanOrEqual(0);
+    expect(waitingInApprovalHistory).toBeLessThan(pauseResultAt);
+
+    const followUp = await session.startTurn({
+      prompt: "Thanks",
+      messages: [
+        {
+          id: "originating-user",
+          role: "user",
+          content: [{ type: "text", text: "Make a shared skill" }],
+        },
+        {
+          id:
+            initialMessage?.type === "message-start"
+              ? initialMessage.message.id
+              : "assistant-1",
+          role: "assistant",
+          content: [
+            { type: "text", text: waitingText },
+            {
+              type: "tool-call",
+              toolCallId: "call-write",
+              toolName: "resources",
+              input: approvedInput,
+              approval: { approvalKey, askId: approvalAskId },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-write",
+              toolName: "resources",
+              result: resultText,
+            },
+            { type: "text", text: doneText },
+          ],
+        },
+      ],
+    });
+    await drain(followUp.events);
+
+    const followUpRequest = JSON.parse(
+      String(fetchMock.mock.calls[2]?.[1]?.body),
+    );
+    expect(followUpRequest.message).toBe("Thanks");
+    expect(JSON.stringify(followUpRequest)).not.toContain(
+      "Go ahead and run the requested action.",
+    );
+    const orderedTexts = (
+      (followUpRequest.structuredHistory ??
+        followUpRequest.history ??
+        []) as Array<{
+        content?: Array<Record<string, unknown>>;
+        role?: string;
+      }>
+    ).flatMap((message) => {
+      if (Array.isArray(message.content)) {
+        return message.content.flatMap((part) => {
+          if (part.type === "text" && typeof part.text === "string") {
+            return [part.text];
+          }
+          if (part.type === "tool-result" && typeof part.content === "string") {
+            return [part.content];
+          }
+          return [];
+        });
+      }
+      return typeof message.content === "string" ? [message.content] : [];
+    });
+    const waitingAt = orderedTexts.findIndex((text) =>
+      text.includes("Waiting for your approval to run resources."),
+    );
+    const resultAt = orderedTexts.findIndex((text) =>
+      text.includes("Wrote resource:"),
+    );
+    const doneAt = orderedTexts.findIndex((text) =>
+      text.includes("Done — I created the shared skill."),
+    );
+    expect(waitingAt).toBeGreaterThanOrEqual(0);
+    expect(resultAt).toBeGreaterThanOrEqual(0);
+    expect(waitingAt).toBeLessThan(resultAt);
+    expect(doneAt === -1 || waitingAt < doneAt).toBe(true);
+  });
+
+  it("sends approver instructions with the already-ran note on an approval continuation", async () => {
+    const approvedInput = { path: "docs/api.md" };
+    const approvalKey = `resources:${JSON.stringify(approvedInput)}`;
+    const approvalAskId = "agent-tool-approval-ask-instructions";
+    const callerPrompt =
+      "Also mention the breaking change in the release summary.";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "text",
+            text: "Waiting for your approval to run resources.",
+          },
+          {
+            type: "tool_start",
+            id: "call-write",
+            tool: "resources",
+            input: approvedInput,
+          },
+          {
+            type: "approval_required",
+            tool: "resources",
+            input: approvedInput,
+            approvalKey,
+            askId: approvalAskId,
+            toolCallId: "call-write",
+          },
+          {
+            type: "tool_done",
+            id: "call-write",
+            tool: "resources",
+            result: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "text", text: "Done — the release summary mentions it." },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-approved-instructions",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-approved-instructions",
+      threadId: "thread-approved-instructions",
+    });
+    const first = await session.startTurn({ prompt: "Document the API" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: { id: approvalAskId, approved: true },
+      prompt: callerPrompt,
+    });
+    expect(continuation).toBeDefined();
+    if (!continuation) {
+      throw new Error("expected an approval continuation");
+    }
+    await drain(continuation.events);
+
+    const approvalRequest = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(approvalRequest.message).toBe(callerPrompt);
+    expect(approvalRequest.approvedContinuationPrompt).toBe(true);
+    expect(approvalRequest.approvedToolCalls).toEqual([approvalKey]);
+    expect(approvalRequest.approvedToolCallAskIds).toEqual([approvalAskId]);
+
+    const laterContinuation = await session.continueTurn?.({
+      prompt: "Continue",
+    });
+    expect(laterContinuation).toBeDefined();
+    if (!laterContinuation) {
+      throw new Error("expected a later continuation");
+    }
+    await drain(laterContinuation.events);
+    const laterRequest = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(laterRequest.message).toBe("Continue");
+    expect(laterRequest).not.toHaveProperty("approvedContinuationPrompt");
+    expect(laterRequest).not.toHaveProperty("approvedToolCalls");
+    expect(laterRequest).not.toHaveProperty("approvedToolCallAskIds");
+  });
+
   it("attaches a renewed approval ask to the exact resumed paused call", async () => {
     const approvalInput = { destination: "release-channel" };
     const approvalKey = `publish-release:${JSON.stringify(approvalInput)}`;
@@ -7647,8 +7949,7 @@ describe("createAgentNativeChatRuntime", () => {
       .map((part) => part.toolCallId);
 
     expect(request).toMatchObject({
-      message:
-        "The approved action has run. Do not repeat it; use its result in your reply.",
+      message: APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
       approvedToolCalls: [approvalKey],
     });
     expect(parts).toContainEqual(

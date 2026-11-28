@@ -2,10 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import { MAX_TURN_WALL_CLOCK_MS } from "../app-config/run-lifecycle-invariants.js";
 import {
+  APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+  APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT,
+  APPROVED_TOOL_CALL_FAILED_PROMPT,
+  APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT,
   AUTO_CONTINUE_FRESHNESS_MS,
   MAX_AUTO_CONTINUES_PER_TURN,
   admitAutoContinue,
   admitManualContinue,
+  approvedToolCallContinuationMessage,
+  approvedToolCallDidNotRunMessage,
+  approvedToolCallFailedMessage,
+  approvedToolCallNotExecutedMessage,
   isTimeLimitStop,
   type TurnRunState,
 } from "./auto-continue.js";
@@ -157,5 +165,71 @@ describe("admitManualContinue", () => {
       admit: false,
       code: "continue_unavailable",
     });
+  });
+});
+
+describe("approved tool call continuation wording", () => {
+  it("keeps approver instructions beside the already-ran note", () => {
+    expect(approvedToolCallContinuationMessage("Also CC legal.")).toBe(
+      `Also CC legal.\n\n${APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT}`,
+    );
+  });
+
+  it("collapses a canned already-ran prompt to the note alone", () => {
+    expect(
+      approvedToolCallContinuationMessage(
+        APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+      ),
+    ).toBe(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT);
+    expect(approvedToolCallContinuationMessage(undefined)).toBe(
+      APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+    );
+    expect(
+      approvedToolCallContinuationMessage(
+        "Approved. Go ahead and run the requested action.",
+      ),
+    ).toBe(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT);
+    expect(
+      approvedToolCallContinuationMessage(APPROVED_TOOL_CALL_FAILED_PROMPT),
+    ).toBe(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT);
+  });
+
+  it("does not tell the model the action ran when it re-pauses", () => {
+    expect(
+      approvedToolCallDidNotRunMessage(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT),
+    ).toBe(APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT);
+    expect(approvedToolCallDidNotRunMessage("Also CC legal.")).toBe(
+      `Also CC legal.\n\n${APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT}`,
+    );
+    expect(approvedToolCallDidNotRunMessage("Also CC legal.")).not.toContain(
+      APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+    );
+  });
+
+  it("says the approved action failed instead of already running", () => {
+    expect(
+      approvedToolCallFailedMessage(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT),
+    ).toBe(APPROVED_TOOL_CALL_FAILED_PROMPT);
+    expect(approvedToolCallFailedMessage("Also CC legal.")).toBe(
+      `Also CC legal.\n\n${APPROVED_TOOL_CALL_FAILED_PROMPT}`,
+    );
+    expect(approvedToolCallFailedMessage("Also CC legal.")).not.toContain(
+      APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+    );
+  });
+
+  it("says the approved action did not run when it fails before execution", () => {
+    expect(
+      approvedToolCallNotExecutedMessage(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT),
+    ).toBe(APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT);
+    expect(approvedToolCallNotExecutedMessage("Also CC legal.")).toBe(
+      `Also CC legal.\n\n${APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT}`,
+    );
+    expect(approvedToolCallNotExecutedMessage("Also CC legal.")).not.toContain(
+      APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+    );
+    expect(approvedToolCallNotExecutedMessage("Also CC legal.")).not.toContain(
+      APPROVED_TOOL_CALL_FAILED_PROMPT,
+    );
   });
 });
