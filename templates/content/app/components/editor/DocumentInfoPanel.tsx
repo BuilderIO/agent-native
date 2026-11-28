@@ -18,6 +18,7 @@ import {
 import type { DatabaseRowView } from "./database/row-view-layout";
 import { useNow } from "./database/SourceStatusLine";
 import { DescriptionField } from "./DescriptionField";
+import { DocumentBacklinks } from "./DocumentBacklinks";
 import { DocumentProperties } from "./DocumentProperties";
 
 interface DocumentInfoPanelProps {
@@ -109,6 +110,7 @@ export function DocumentInfoPanel({
         />
       ) : null}
       {checks}
+      <DocumentBacklinks documentId={document.id} />
       <PageDetails
         document={document}
         blockFields={

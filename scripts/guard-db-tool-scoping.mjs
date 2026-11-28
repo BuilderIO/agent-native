@@ -46,6 +46,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "page-to-image links; the private image route checks the page's access before using one",
   "content:content_analytics_chart_citations":
     "page-to-dashboard links; list-analytics-chart-citations checks each page's access and saved body before returning it",
+  "content:content_page_links":
+    "page-to-page links; list-backlinks checks each linking page's access before returning it",
   "content:content_webhook_deliveries":
     "webhook delivery outbox sent by the Content webhook sweep; list-content-webhooks shows delivery status to admins",
   "content:content_column_fill_cells":

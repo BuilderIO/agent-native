@@ -626,6 +626,22 @@ export function contentActionInvalidatePredicate(
         eventsIncludePageMutation(events, PAGE_CHECK_MUTATIONS, targetId)
       );
     }
+    if (
+      query.queryKey[0] === "action" &&
+      query.queryKey[1] === "list-backlinks"
+    ) {
+      return (
+        typeof targetId === "string" &&
+        query.isActive?.() === true &&
+        events.some(
+          (event) =>
+            event.source === "action" &&
+            typeof event.key === "string" &&
+            NAVIGATION_CONTEXT_MUTATIONS.has(event.key) &&
+            event.resourceId !== targetId,
+        )
+      );
+    }
     if (documentId === undefined) {
       return false;
     }

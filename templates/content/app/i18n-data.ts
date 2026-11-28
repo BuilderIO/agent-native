@@ -3,6 +3,7 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
 import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
+import { backlinkMessagesByLocale } from "./backlink-messages";
 import { builderAutosaveMessagesByLocale } from "./builder-autosave-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
 import { designScreenMessagesByLocale } from "./design-screen-messages";
@@ -2620,6 +2621,7 @@ const enUS = {
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
   linkCard: linkCardMessagesByLocale["en-US"],
   pageChecks: pageCheckMessagesByLocale["en-US"],
+  backlinks: backlinkMessagesByLocale["en-US"],
   designScreen: designScreenMessagesByLocale["en-US"],
   builderAutosave: builderAutosaveMessagesByLocale["en-US"],
 };
@@ -2690,6 +2692,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     analyticsChart: enUS.analyticsChart,
     linkCard: enUS.linkCard,
     pageChecks: enUS.pageChecks,
+    backlinks: enUS.backlinks,
     designScreen: enUS.designScreen,
     builderAutosave: enUS.builderAutosave,
     creativeContext: {
@@ -3218,6 +3221,7 @@ function mergeMessagesForLocale(
     analyticsChart: analyticsChartMessagesByLocale[locale],
     linkCard: linkCardMessagesByLocale[locale],
     pageChecks: pageCheckMessagesByLocale[locale],
+    backlinks: backlinkMessagesByLocale[locale],
     designScreen: designScreenMessagesByLocale[locale],
     builderAutosave: builderAutosaveMessagesByLocale[locale],
   };

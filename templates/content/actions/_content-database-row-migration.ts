@@ -9,6 +9,7 @@ import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citat
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
+import { syncPageLinks } from "../server/lib/page-links.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
@@ -598,6 +599,11 @@ export async function applyMigration(
       userEmail: documentAttributionActor(),
     });
     await syncAnalyticsChartCitations(tx, {
+      documentId: row.documentId,
+      before: priorBodies.get(row.documentId),
+      after: row.content,
+    });
+    await syncPageLinks(tx, {
       documentId: row.documentId,
       before: priorBodies.get(row.documentId),
       after: row.content,

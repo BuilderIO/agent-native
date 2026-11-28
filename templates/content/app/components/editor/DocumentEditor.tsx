@@ -332,6 +332,7 @@ import {
   pendingSaveRetrySnapshot,
 } from "./document-save-retry";
 import { DocumentAccessScreen } from "./DocumentAccessScreen";
+import { BacklinkCount } from "./DocumentBacklinks";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
@@ -11780,6 +11781,27 @@ function PageEditorSessionBody({
     },
     prefillComment: prefillPendingComment,
   });
+  const showBacklinks = useCallback(() => {
+    if (openPanelTabRef.current !== "info") handlePagePanelChange("info");
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const section = pagePanelRef.current?.querySelector<HTMLElement>(
+          "[data-document-backlinks]",
+        );
+        if (!section) return;
+        section.scrollIntoView({
+          block: "nearest",
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)")
+            .matches
+            ? "auto"
+            : "smooth",
+        });
+        section
+          .querySelector<HTMLElement>("[data-document-backlink]")
+          ?.focus({ preventScroll: true });
+      }),
+    );
+  }, [handlePagePanelChange]);
   const pagePanelBody =
     pagePanel.rendered === "info" ? (
       <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
@@ -12179,7 +12201,7 @@ function PageEditorSessionBody({
                     host,
                   )}
                 >
-                  <div className="mb-1">
+                  <div className="mb-1 flex items-end justify-between gap-2">
                     {documentCanonicalMutationsEnabled(
                       editorCanEdit,
                       isSuggesting,
@@ -12243,6 +12265,12 @@ function PageEditorSessionBody({
                       // An editor gets the "Add icon" button once the page
                       // syncs; its row is held so the title does not move.
                       <div className="h-7" aria-hidden="true" />
+                    ) : null}
+                    {host === "page" ? (
+                      <BacklinkCount
+                        documentId={documentId}
+                        onOpen={showBacklinks}
+                      />
                     ) : null}
                   </div>
                   <textarea

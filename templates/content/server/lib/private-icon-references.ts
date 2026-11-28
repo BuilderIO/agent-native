@@ -6,6 +6,7 @@ import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
 import { syncAnalyticsChartCitations } from "./analytics-chart-citations.js";
 import { firstRow } from "./first-row.js";
+import { syncPageLinks } from "./page-links.js";
 import {
   assertPrivateIconOwner,
   assertPrivateIconId,
@@ -313,6 +314,11 @@ export async function syncPrivateBodyReferences(
   });
   await syncPrivateCalloutReferences(db, input);
   await syncAnalyticsChartCitations(db, {
+    documentId: input.documentId,
+    before: input.before,
+    after: input.after,
+  });
+  await syncPageLinks(db, {
     documentId: input.documentId,
     before: input.before,
     after: input.after,

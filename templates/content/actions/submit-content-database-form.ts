@@ -20,6 +20,7 @@ import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citat
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { firstRow } from "../server/lib/first-row.js";
 import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
+import { syncPageLinks } from "../server/lib/page-links.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import type {
   ContentDatabaseView,
@@ -875,6 +876,10 @@ export async function writeCollectionFormRecord<TInserted>(input: {
       });
     }
     await syncAnalyticsChartCitations(lockedDb, {
+      documentId,
+      after: documentContent,
+    });
+    await syncPageLinks(lockedDb, {
       documentId,
       after: documentContent,
     });

@@ -432,6 +432,35 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "editor.backlinks",
+    surface: "editor",
+    label:
+      "See the pages that link to or mention a page, in its Info panel or from the count by its title",
+    uiEntrypoints: [
+      "app/components/editor/DocumentBacklinks.tsx",
+      "app/components/editor/DocumentInfoPanel.tsx",
+      "app/components/editor/DocumentEditor.tsx",
+      "app/hooks/use-backlinks.ts",
+    ],
+    durableEffect:
+      "Every save of a page body records which pages its links, page mentions and sub-page blocks point to, one row per linking page and target. A recurring sweep records the links in pages saved before the index existed.",
+    uiImplementation:
+      "Info's Linked from section and the count by the title read list-backlinks as the signed-in person, which keeps only linking pages they can open and leaves out pages in Trash until they are restored. A page write from another tab or an agent refreshes an open list.",
+    status: "action-backed",
+    actions: ["list-backlinks"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/page-links.db.test.ts",
+      "shared/page-links-in-body.test.ts",
+      "app/components/editor/DocumentBacklinks.test.tsx",
+      "app/hooks/content-action-refresh.backlinks.test.ts",
+    ],
+  },
+  {
     id: "editor.clip-embeds",
     surface: "editor",
     label:
