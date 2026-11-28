@@ -298,7 +298,12 @@ for (const theme of ["light", "dark"] as const) {
       await expect(pageActions).toBeFocused();
 
       await pageActions.click();
-      for (const name of ["Info", "Version history", "Export", "Delete"]) {
+      for (const name of [
+        "Info",
+        "Version history",
+        "Export",
+        "Move to Trash",
+      ]) {
         await expect(
           pageMenu.getByRole("menuitem", { name, exact: true }),
         ).toBeVisible();
@@ -381,7 +386,7 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
     });
     await pageActions.click();
     await page.getByRole("menuitem", { name: "Info", exact: true }).click();
-    const infoDialog = page.getByRole("complementary", { name: "Info" });
+    const infoDialog = page.getByRole("tabpanel", { name: "Info" });
     const info = infoDialog.locator("[data-document-info-panel]");
     await expect(info).toBeVisible();
     await expect(info.getByLabel("Description")).toBeVisible();
@@ -412,7 +417,7 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
     await expect(infoDialog).toBeHidden();
 
     await preview.getByRole("tab", { name: "Discussion", exact: true }).click();
-    const commentsDialog = page.getByRole("complementary", {
+    const commentsDialog = page.getByRole("tabpanel", {
       name: "Discussion",
     });
     await expect(commentsDialog).toBeVisible();
@@ -635,7 +640,7 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
         has: page.getByRole("menuitem", { name: "Version history" }),
       });
       const deleteAction = pageMenu.getByRole("menuitem", {
-        name: "Delete",
+        name: "Move to Trash",
         exact: true,
       });
       if (role.canManage) {
