@@ -7741,7 +7741,7 @@ export async function confirmQueuedRunInterrupt(input: {
   return "pending";
 }
 
-export async function runAgentLoop(opts: {
+async function runAgentLoopInternal(opts: {
   engine: AgentEngine;
   model: string;
   systemPrompt: string;
@@ -7842,7 +7842,9 @@ export async function runAgentLoop(opts: {
   /** Unattended MCP runs require approval for every prepared write call. */
   requireWriteApproval?: boolean;
   processors?: Processor[];
+  lateOutcomes: Set<Promise<void>>;
 }): Promise<AgentLoopUsage> {
+  const { lateOutcomes } = opts;
   const {
     engine,
     systemPrompt: providedSystemPrompt,
@@ -11455,6 +11457,12 @@ export async function runAgentLoop(opts: {
         input: liveToolInput as Record<string, string>,
       });
 
+      const lateOutcomeDecision = new AbortController();
+      const lateOutcomeReady = new Promise<void>((resolve) => {
+        lateOutcomeDecision.signal.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
+      });
       try {
         const cacheKey =
           actionIsReadOnly && actionEntry.dedupe !== false
@@ -11784,8 +11792,9 @@ export async function runAgentLoop(opts: {
             };
             const zombieLedgerPromise = actionPromise.then(
               async (zombieRaw: unknown) => {
+                lateOutcomes.add(zombieLedgerPromise);
                 try {
-                  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                  await lateOutcomeReady;
                   if (!toolResultLost) return;
                   // A call is recovered only when it may have written.
                   if (ranEffect({}).effect === "none") return;
@@ -11875,8 +11884,8 @@ export async function runAgentLoop(opts: {
                 }
               },
               async (error: unknown) => {
-                // Let the race record which rejection it actually handled.
-                await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                lateOutcomes.add(zombieLedgerPromise);
+                await lateOutcomeReady;
                 if (
                   !actionRaceFailure ||
                   Object.is(actionRaceFailure.error, error) ||
@@ -11907,6 +11916,10 @@ export async function runAgentLoop(opts: {
                   "late-action-rejection",
                 );
               },
+            );
+            void zombieLedgerPromise.then(
+              () => lateOutcomes.delete(zombieLedgerPromise),
+              () => lateOutcomes.delete(zombieLedgerPromise),
             );
             void retainRequestDbPoolScope(zombieLedgerPromise);
           }
@@ -12278,6 +12291,7 @@ export async function runAgentLoop(opts: {
           executionStepFinalizationAttempted = false;
           executionStepOutcomeRecorded = true;
         }
+        lateOutcomeDecision.abort();
 
         toolDonePersistenceFailed = true;
         unknownOutcomeCause = toolResultLost
@@ -12350,6 +12364,7 @@ export async function runAgentLoop(opts: {
             : {}),
         };
       } finally {
+        lateOutcomeDecision.abort();
         if (!toolDoneEmitted && !toolDonePersistenceFailed) {
           const result = `Error running ${toolCall.name}: tool execution ended before returning a result.`;
           unknownOutcomeCause = "interruption";
@@ -12722,6 +12737,34 @@ export async function runAgentLoop(opts: {
     reportOutcome({ state: "completed" });
   }
   return usage;
+}
+
+export async function runAgentLoop(
+  opts: Omit<Parameters<typeof runAgentLoopInternal>[0], "lateOutcomes">,
+): Promise<AgentLoopUsage> {
+  const lateOutcomes = new Set<Promise<void>>();
+  try {
+    return await runAgentLoopInternal({ ...opts, lateOutcomes });
+  } finally {
+    await Promise.resolve();
+    if (lateOutcomes.size > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const lateWait = { timedOut: false };
+      const deadline = new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          lateWait.timedOut = true;
+          resolve();
+        }, 1_000);
+      });
+      try {
+        while (!lateWait.timedOut && lateOutcomes.size > 0) {
+          await Promise.race([Promise.allSettled([...lateOutcomes]), deadline]);
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
 }
 
 function backgroundChatProgressRunId(turnId: string): string {

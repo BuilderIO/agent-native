@@ -173,6 +173,60 @@ describe("late outcome error reporting", () => {
     vi.restoreAllMocks();
   });
 
+  it("returns when settled late persistence stalls and reports its eventual failure", async () => {
+    const capture = vi
+      .spyOn(errorCapture, "captureError")
+      .mockImplementation(() => {});
+    const runStore = await import("./run-store.js");
+    const lateWrite = vi.mocked(runStore.recordLateAgentExecutionStepOutcome);
+    const pendingWrite = Promise.withResolvers<void>();
+    const persistenceError = new Error("late persistence failed");
+    lateWrite.mockReset();
+    lateWrite.mockReturnValue(pendingWrite.promise);
+    const controller = new AbortController();
+    try {
+      await withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: engineFor([[toolCall()]], []),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "Go" }] }],
+          actions: {
+            "create-deck": {
+              tool: {
+                description: "Create a deck",
+                parameters: { type: "object", properties: {} },
+              },
+              readOnly: false,
+              run: async () => {
+                controller.abort();
+                return "Saved";
+              },
+            },
+          },
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+          runId: fence.runId,
+          send: () => {},
+          signal: controller.signal,
+        }),
+      );
+      expect(lateWrite).toHaveBeenCalledOnce();
+      expect(capture).not.toHaveBeenCalled();
+      pendingWrite.reject(persistenceError);
+      await vi.waitFor(() =>
+        expect(capture).toHaveBeenCalledWith(
+          persistenceError,
+          expect.objectContaining({ tags: lateTags }),
+        ),
+      );
+    } finally {
+      pendingWrite.resolve();
+      lateWrite.mockReset();
+    }
+  });
+
   it("returns an on-time action rejection without reporting a late persistence failure", async () => {
     const capture = vi
       .spyOn(errorCapture, "captureError")
