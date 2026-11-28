@@ -39,15 +39,24 @@ export function orderedItem(line: string): OrderedItem | null {
 }
 
 export function orderedItems(markdown: string): Array<OrderedItem | null> {
-  let fence: string | null = null;
+  let fence: { marker: string; indent: number } | null = null;
   return markdown.split("\n").map((line) => {
     const text = line.replace(/^\t+/, "");
+    const indent = line.length - text.length;
     if (fence) {
-      if (closesFence(text.match(FENCE_CLOSE), fence)) fence = null;
+      if (
+        closesFence(text.trim().match(FENCE_CLOSE), fence.marker) &&
+        indent >= fence.indent
+      )
+        fence = null;
       return null;
     }
-    fence = matchFenceOpen(text)?.[1] ?? null;
-    return fence ? null : orderedItem(line);
+    const marker = matchFenceOpen(text)?.[1];
+    if (marker) {
+      fence = { marker, indent };
+      return null;
+    }
+    return orderedItem(line);
   });
 }
 
@@ -115,7 +124,8 @@ function numberedLines(markdown: string) {
 
 export function withListNumbersInOrder(markdown: string): string {
   const numbered = numberedLines(markdown);
-  const renumbered = numberedLines(canonicalizeNfm(markdown));
+  const canonicalPage = canonicalizeNfm(markdown);
+  const renumbered = numberedLines(canonicalPage);
   if (numbered.length !== renumbered.length) return markdown;
   const lines = markdown.split("\n");
   for (const [position, line] of numbered.entries()) {
@@ -129,5 +139,8 @@ export function withListNumbersInOrder(markdown: string): string {
     lines[line.index] =
       `${line.item.indent}${canonical.item.digits}${line.rest}`;
   }
-  return lines.join("\n");
+  const result = lines.join("\n");
+  return result !== markdown && canonicalizeNfm(result) === canonicalPage
+    ? result
+    : markdown;
 }

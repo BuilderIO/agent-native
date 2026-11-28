@@ -325,23 +325,22 @@ export function resolveMarkdownSuggestionRange(
     resolveParagraphRange(before.markdown, currentMarkdown, anchor) ??
     resolveAcrossSiblingRanges(before.markdown, currentMarkdown, anchor) ??
     resolveThroughCanonicalForm(before.markdown, currentMarkdown, anchor) ??
-    resolveAcrossListNumbers(currentMarkdown, before, after, anchor)
+    resolveAcrossListNumbers(before.markdown, currentMarkdown, anchor)
   );
 }
 
 function resolveAcrossListNumbers(
+  before: string,
   currentMarkdown: string,
-  before: MarkdownPayload,
-  after: MarkdownPayload,
   anchor: MarkdownAnchor,
 ) {
-  const saved = maskListNumbers(before.markdown);
+  const saved = maskListNumbers(before);
   const current = maskListNumbers(currentMarkdown);
-  if (saved.text === before.markdown && current.text === currentMarkdown)
-    return null;
+  if (saved.text === before && current.text === currentMarkdown) return null;
   const from = maskedOffset(saved, anchor.from);
   const to = maskedOffset(saved, anchor.to);
-  if (from === null || to === null) return null;
+  if (from === null || to === null || !linesOccurOnce(saved.text, from, to))
+    return null;
   const siblingRanges: Range[] = [];
   for (const sibling of anchor.siblingRanges ?? []) {
     const siblingFrom = maskedOffset(saved, sibling.from);
@@ -350,26 +349,40 @@ function resolveAcrossListNumbers(
     siblingRanges.push({ from: siblingFrom, to: siblingTo });
   }
   const text = saved.text;
-  const range = resolveMarkdownSuggestionRange(current.text, {
-    before: { markdown: text, changedText: text.slice(from, to) },
-    after: {
-      markdown: `${text.slice(0, from)}${after.changedText}${text.slice(to)}`,
-      changedText: after.changedText,
-    },
-    anchor: {
-      from,
-      to,
-      prefix: text.slice(Math.max(0, from - anchor.prefix.length), from),
-      suffix: text.slice(to, to + anchor.suffix.length),
-      ...(anchor.siblingRanges && { siblingRanges }),
-    },
-  });
-  return range
+  const masked: MarkdownAnchor = {
+    from,
+    to,
+    prefix: text.slice(Math.max(0, from - anchor.prefix.length), from),
+    suffix: text.slice(to, to + anchor.suffix.length),
+    ...(anchor.siblingRanges && { siblingRanges }),
+  };
+  const index = locateUnrepeatedContext(
+    text,
+    current.text,
+    `${masked.prefix}${text.slice(from, to)}${masked.suffix}`,
+  );
+  const range =
+    index >= 0
+      ? {
+          from: index + masked.prefix.length,
+          to: index + masked.prefix.length + to - from,
+        }
+      : (resolveOutsideChange(text, current.text, masked) ??
+        resolveParagraphRange(text, current.text, masked) ??
+        resolveAcrossSiblingRanges(text, current.text, masked));
+  return range && linesOccurOnce(current.text, range.from, range.to)
     ? {
         from: unmaskedOffset(current, range.from),
         to: unmaskedOffset(current, range.to),
       }
     : null;
+}
+
+function linesOccurOnce(text: string, from: number, to: number) {
+  const start = from === 0 ? 0 : text.lastIndexOf("\n", from - 1) + 1;
+  const end = text.indexOf("\n", to);
+  const lines = text.slice(start, end < 0 ? text.length : end);
+  return text.indexOf(lines) === start && text.indexOf(lines, start + 1) < 0;
 }
 
 // A page an agent wrote, with blank lines or a pipe table, is saved in the

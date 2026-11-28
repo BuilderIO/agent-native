@@ -48,6 +48,18 @@ describe("withListNumbersInOrder", () => {
     expect(canonicalizeNfm(page)).not.toContain("_Stove_");
     expect(withListNumbersInOrder(page)).toBe(page);
   });
+
+  it("ends a code fence only where the editor does", () => {
+    expect(withListNumbersInOrder("1. A\n\t```\n```\n1. B\n\t```\n7. B")).toBe(
+      "1. A\n\t```\n```\n1. B\n\t```\n2. B",
+    );
+  });
+
+  it("leaves a page alone when a longer number would move a nested line out of its item", () => {
+    const page = "9. A\n9. B\n   - nested";
+    expect(canonicalizeNfm(page)).toContain("\t- nested");
+    expect(withListNumbersInOrder(page)).toBe(page);
+  });
 });
 
 describe("maskListNumbers", () => {
@@ -79,6 +91,15 @@ describe("placing a suggestion on a list that was renumbered", () => {
         (edit) => applyMarkdownSuggestionOperation(current, edit),
       ),
     ).toEqual([current.replace("Map", "Maps")]);
+  });
+
+  it("refuses an edit to a removed item when another item has the same text", () => {
+    expect(
+      markdownSuggestionOperations(
+        "1. Same\n2. Same",
+        "1. Same\n2. Changed",
+      ).map((edit) => applyMarkdownSuggestionOperation("1. Same", edit)),
+    ).toEqual([null]);
   });
 
   it("places an added item after another added item was accepted", () => {
