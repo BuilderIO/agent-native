@@ -156,7 +156,17 @@ test(
     ).toBeVisible({ timeout: 30_000 });
     await caretInLastEmptyCell(page);
     await page.keyboard.type(TYPED, { delay: 40 });
+    await page.getByRole("button", { name: "Stop suggesting" }).click();
+    await expect(
+      page.getByRole("button", { name: "Stop suggesting" }),
+    ).toHaveCount(0, { timeout: 30_000 });
     await expect(acceptButton(page)).toHaveCount(1, { timeout: 30_000 });
+    await expect
+      .poll(() => everyColumnSized(page), {
+        message: "the widths before the accept",
+        timeout: 30_000,
+      })
+      .toBe(true);
 
     await acceptButton(page).click();
     await expect
@@ -169,9 +179,12 @@ test(
     await expect(page.getByText("were just edited")).toHaveCount(0);
     await expect(statusOf(page, "Beta")).toHaveText(TYPED);
     await expect(statusOf(page, "Alpha")).toHaveText("");
-    expect(await everyColumnSized(page), "the widths after the accept").toBe(
-      true,
-    );
+    await expect
+      .poll(() => everyColumnSized(page), {
+        message: "the widths after the accept",
+        timeout: 30_000,
+      })
+      .toBe(true);
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expectEditorReady(page);
