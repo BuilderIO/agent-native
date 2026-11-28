@@ -76,7 +76,7 @@ function startsWith(column: SQL, needle: string): SQL {
 }
 
 function completes(column: SQL, needle: string): SQL {
-  return sql`${column} ~ ${`^${escapeRegex(needle)}[[:alnum:]_]*$`}`;
+  return sql`(${startsWith(column, needle)} AND substr(${column}, char_length(${needle}::text) + 1) !~ '[^[:alnum:]_]')`;
 }
 
 function wordPrefix(column: SQL, needle: string): SQL {

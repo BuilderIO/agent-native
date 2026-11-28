@@ -3133,9 +3133,7 @@ describe("CommandMenu", () => {
       expect(selectedValue()).toBe("page:a");
 
       renderRows(() => ["page:b", "page:a"]);
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
+      await act(async () => {});
 
       expect(selectedValue()).toBe("page:b");
     });
@@ -3147,9 +3145,10 @@ describe("CommandMenu", () => {
           : ["page:a", "page:b", "page:c", "page:d", "page:e"],
       );
       const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+      if (!input) throw new Error("The search field didn't render");
       for (let step = 0; step < 4; step += 1) {
         act(() => {
-          input!.dispatchEvent(
+          input.dispatchEvent(
             new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
           );
         });
@@ -3169,8 +3168,9 @@ describe("CommandMenu", () => {
       const row = document.querySelector<HTMLElement>(
         '[cmdk-item][data-value="page:b"]',
       );
+      if (!row) throw new Error("The second row didn't render");
       act(() => {
-        row!.dispatchEvent(new Event("pointermove", { bubbles: true }));
+        row.dispatchEvent(new Event("pointermove", { bubbles: true }));
       });
 
       expect(selectedValue()).toBe("page:b");

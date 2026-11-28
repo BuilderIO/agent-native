@@ -130,17 +130,17 @@ export function documentSearchRanking(
       )!
     : sql`false`;
   const simpleTier = (compare: (query: string) => SQL) =>
-    normalizedSimpleQueries.length
+    (normalizedSimpleQueries.length > 0
       ? and(
           guardNormalizedTitle ? allTitleSubstrings : sql`true`,
-          or(...normalizedSimpleQueries.map(compare))!,
-        )!
-      : sql`false`;
+          or(...normalizedSimpleQueries.map(compare)),
+        )
+      : undefined) ?? sql`false`;
   const matchTier = sql<number>`case
     when ${simpleTier((query) => sql`${normalizedTitle} = ${query}`)} then 6
     when ${simpleTier(
       (query) =>
-        sql`${normalizedTitle} ~ ${`^${escapeRegex(query)}[[:alnum:]_]*$`}`,
+        sql`(${normalizedTitle} like ${`${escapeLike(query)}%`} escape '\\' and substr(${normalizedTitle}, char_length(${query}::text) + 1) !~ '[^[:alnum:]_]')`,
     )} then 5
     when ${simpleTier(
       (query) =>
