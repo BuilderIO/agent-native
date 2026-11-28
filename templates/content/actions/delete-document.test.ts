@@ -126,6 +126,10 @@ const { schema } = vi.hoisted(() => ({
       documentId: "documentImports.documentId",
       originalBlob: "documentImports.originalBlob",
     },
+    pageLinks: {
+      sourceDocumentId: "pageLinks.sourceDocumentId",
+      targetDocumentId: "pageLinks.targetDocumentId",
+    },
     documentSyncLinks: {
       documentId: "documentSyncLinks.documentId",
       ownerEmail: "documentSyncLinks.ownerEmail",
@@ -437,6 +441,15 @@ describe("deleteDocumentRecursive", () => {
     );
     expect(eventDeletes.map((c) => c.cond)).toEqual([
       { __inArray: [schema.contentWebhookDeliveries.documentId, ["doc-1"]] },
+    ]);
+  });
+
+  it("deletes the links the deleted page records", async () => {
+    await deleteDocumentRecursive(db, "doc-1", "owner-a@example.com");
+
+    const linkDeletes = deleteCalls.filter((c) => c.table === "pageLinks");
+    expect(linkDeletes.map((c) => c.cond)).toEqual([
+      { __inArray: [schema.pageLinks.sourceDocumentId, ["doc-1"]] },
     ]);
   });
 
