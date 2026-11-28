@@ -50,6 +50,7 @@ let getDb: typeof import("../server/db/index.js").getDb;
 let schema: Schema;
 let syncPrivateBodyReferences: typeof import("../server/lib/private-icon-references.js").syncPrivateBodyReferences;
 let backfill: typeof import("../server/lib/page-links-backfill.js");
+let deleteDocumentRecursive: typeof import("./delete-document.js").deleteDocumentRecursive;
 let updateDocument: Action;
 let editDocument: Action;
 let listBacklinks: Action;
@@ -64,6 +65,7 @@ beforeAll(async () => {
   ({ syncPrivateBodyReferences } =
     await import("../server/lib/private-icon-references.js"));
   backfill = await import("../server/lib/page-links-backfill.js");
+  ({ deleteDocumentRecursive } = await import("./delete-document.js"));
   updateDocument = (await import("./update-document.js")).default as Action;
   editDocument = (await import("./edit-document.js")).default as Action;
   listBacklinks = (await import("./list-backlinks.js")).default as Action;
@@ -334,6 +336,18 @@ describe("list-backlinks", () => {
     expect((await list(OWNER, target)).pages.map((p) => p.id)).toEqual([
       source,
     ]);
+  });
+
+  it("forgets a linking page's links once it's deleted for good", async () => {
+    const target = await page();
+    const source = await page({ content: linksTo(target) });
+    await save(source, "", linksTo(target));
+    expect(await targetsOf(source)).toEqual([target]);
+
+    await as(OWNER, () => deleteDocumentRecursive(getDb(), source, OWNER));
+
+    expect(await targetsOf(source)).toEqual([]);
+    expect((await list(OWNER, target)).count).toBe(0);
   });
 
   it("shows a linking page's new title and icon, since links follow page ids", async () => {
