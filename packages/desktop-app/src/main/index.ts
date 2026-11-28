@@ -1036,12 +1036,6 @@ function listDesktopIdentityCleanupApps(): DesktopIdentityApp[] {
   return listDesktopIdentityApps({ forCleanup: true });
 }
 
-async function isDesktopIdentityAvailable(
-  authorityApp: DesktopIdentityApp,
-): Promise<boolean> {
-  return fetchDesktopIdentityAvailability(authorityApp, authorityApp.session);
-}
-
 function getOAuthInjectionTarget(
   sourceSession: Electron.Session | undefined,
   sourceUrl: string | undefined,
@@ -1869,7 +1863,7 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
   desktopIdentityBroker = new DesktopIdentityBroker({
     identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
     userAgent: app.userAgentFallback,
-    isAvailable: isDesktopIdentityAvailable,
+    isAvailable: fetchDesktopIdentityAvailability,
     resolveApp: (appId) =>
       resolveDesktopIdentityApp(appId, {
         allowDisabled: appId === "dispatch",
