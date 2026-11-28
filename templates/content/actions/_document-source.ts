@@ -155,10 +155,32 @@ async function localFolderOwners(
   documentIds: string[],
 ) {
   const documents = schema.documents;
-  const sources = schema.contentDatabaseSources;
-  const sourceRows = schema.contentDatabaseSourceRows;
   const owners = new Map<string, string | null>();
   for (const batch of chunks([...new Set(documentIds)], 500)) {
+    // guard:allow-unscoped — callers have checked access to these pages; this reads only which folder links own them.
+    const pages = await db
+      .select({
+        id: documents.id,
+        sourceMode: documents.sourceMode,
+        sourceKind: documents.sourceKind,
+      })
+      .from(documents)
+      .where(
+        and(
+          inArray(documents.id, batch),
+          eq(documents.sourceMode, "local-files"),
+          eq(documents.sourceKind, "file"),
+        ),
+      );
+    const files = pages
+      .filter(
+        (page) =>
+          page.sourceMode === "local-files" && page.sourceKind === "file",
+      )
+      .map((page) => page.id);
+    if (files.length === 0) continue;
+    const sources = schema.contentDatabaseSources;
+    const sourceRows = schema.contentDatabaseSourceRows;
     // guard:allow-unscoped — callers have checked access to these pages; this reads only which folder links own them.
     const links = await db
       .select({
@@ -183,7 +205,7 @@ async function localFolderOwners(
       )
       .where(
         and(
-          inArray(documents.id, batch),
+          inArray(documents.id, files),
           eq(documents.sourceMode, "local-files"),
           eq(documents.sourceKind, "file"),
         ),
