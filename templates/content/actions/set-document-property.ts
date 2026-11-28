@@ -62,6 +62,7 @@ import {
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
+import { assertLocalFolderAllowsPageEdit } from "./_document-source.js";
 import {
   NFM_CONTAINER_SYNTAX,
   NFM_INTERACTIVE_HTML_SYNTAX,
@@ -452,6 +453,9 @@ export default defineAction({
             statusCode: 400,
           },
         );
+      }
+      if (target === "document_body") {
+        await assertLocalFolderAllowsPageEdit(document);
       }
       const fieldRevision =
         baseRevision === undefined ? expectedBlocksFieldRevision : undefined;

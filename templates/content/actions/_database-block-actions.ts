@@ -72,7 +72,10 @@ import {
   type RowSnapshot,
 } from "./_database-row-mutation.js";
 import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
-import { assertSourceAllowsPageEdit } from "./_document-source.js";
+import {
+  assertLocalFolderAllowsPageEdit,
+  assertSourceAllowsPageEdit,
+} from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -265,6 +268,7 @@ async function loadField(args: {
   );
   if (args.role === "editor" && storageTarget === "document_body") {
     assertSourceAllowsPageEdit(row.document);
+    await assertLocalFolderAllowsPageEdit(row.document, "edit", db);
   }
   let markdown: string;
   let storageRowExists = true;

@@ -100,7 +100,10 @@ import {
 } from "./_content-save-outcomes.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
-import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
+import {
+  assertAgentsMayEditPageText,
+  isAgentCall,
+} from "./_document-agent-lock.js";
 import {
   assertEditableDocument,
   documentContentHash,
@@ -113,6 +116,7 @@ import {
 } from "./_document-mutation-access.js";
 import { lockDocumentForSave } from "./_document-save-locks.js";
 import {
+  assertLocalFolderAllowsPageEdit,
   assertSourceAllowsPageEdit,
   serializeDocumentSource,
 } from "./_document-source.js";
@@ -680,6 +684,14 @@ const updateDocumentAction = defineAction({
       .describe(
         "Immutable browser save attempt ID; retry with the exact same payload",
       ),
+    localSourceRevision: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe(
+        "Revision the local folder bridge returned after this editor save wrote the page's file. Only the browser editor that wrote the file sends it.",
+      ),
     preserveLeadingTitleHeading: z
       .boolean()
       .optional()
@@ -1166,7 +1178,14 @@ const updateDocumentAction = defineAction({
         args.description !== undefined &&
         args.description.trim() !== existing.description;
       const textChanged = titleChanged || contentChanged || descriptionChanged;
-      if (textChanged) assertSourceAllowsPageEdit(existing);
+      if (textChanged) {
+        assertSourceAllowsPageEdit(existing);
+        const wroteLocalFile =
+          args.localSourceRevision !== undefined &&
+          ctx?.caller === "frontend" &&
+          !isAgentCall(ctx);
+        if (!wroteLocalFile) await assertLocalFolderAllowsPageEdit(existing);
+      }
       // The page's level keeps its icon out of agents' reach with its text.
       if (textChanged || iconChanged)
         assertAgentsMayEditPageText(existing, ctx);

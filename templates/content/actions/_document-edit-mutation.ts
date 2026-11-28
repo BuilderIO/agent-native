@@ -62,7 +62,10 @@ import {
   assertAgentsMayEditPagesText,
   assertAgentsMayEditPageText,
 } from "./_document-agent-lock.js";
-import { assertSourceAllowsPageEdit } from "./_document-source.js";
+import {
+  assertLocalFolderAllowsPageEdit,
+  assertSourceAllowsPageEdit,
+} from "./_document-source.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -491,6 +494,7 @@ async function performDocumentBodyMutation(
         .where(eq(schema.documents.id, args.documentId));
       assertEditableDocument(document);
       assertSourceAllowsPageEdit(document);
+      await assertLocalFolderAllowsPageEdit(document, "edit", tx);
       assertAgentsMayEditPageText(document, args.ctx);
       const hasCurrentBase =
         document?.bodyRevision === base.revision &&

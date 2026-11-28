@@ -59,7 +59,10 @@ import {
   assertEditableDocument,
   mutateDocumentBody,
 } from "./_document-edit-mutation.js";
-import { assertSourceAllowsPageEdit } from "./_document-source.js";
+import {
+  assertLocalFolderAllowsPageEdit,
+  assertSourceAllowsPageEdit,
+} from "./_document-source.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 import {
   NFM_CONTAINER_SYNTAX,
@@ -403,6 +406,7 @@ export default defineAction({
         !id.startsWith("local-file:") &&
         !id.startsWith("local-folder:");
       if (isLinkedLocalSource) {
+        await assertLocalFolderAllowsPageEdit(existing);
         throw new ActionContractError(
           "Revisioned external edits are unavailable for linked-local documents because the source-file write cannot share the SQL receipt transaction.",
           {
@@ -569,6 +573,9 @@ export default defineAction({
         receipt.status !== "source-persisted/readback-pending"
       ) {
         countOutcome("refusal", "none", "local_source_refused");
+        if (receipt.status === "unavailable") {
+          await assertLocalFolderAllowsPageEdit(existing);
+        }
         return {
           applied: 0,
           total: edits.length,

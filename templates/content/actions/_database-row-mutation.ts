@@ -59,6 +59,7 @@ import {
 import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertCollectionAcceptsNewRows,
+  assertLocalFolderAllowsPageEdit,
   assertSourceAllowsPageEdit,
 } from "./_document-source.js";
 import {
@@ -1473,6 +1474,7 @@ async function writeRowTitle(
   args: { title: string; expectedRowRevision: string },
 ) {
   assertSourceAllowsPageEdit(before.document);
+  await assertLocalFolderAllowsPageEdit(before.document, "edit", tx);
   const [updatedDocument] = await tx
     .update(schema.documents)
     .set({

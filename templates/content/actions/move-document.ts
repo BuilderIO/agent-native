@@ -17,6 +17,7 @@ import {
 import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
+  assertLocalFolderAllowsPageEdit,
   assertSourceAllowsPageEdit,
   linkedNestedLocalFile,
 } from "./_document-source.js";
@@ -293,6 +294,7 @@ export default defineAction({
       (args.parentId !== undefined && args.parentId !== existing.parentId)
     ) {
       assertSourceAllowsPageEdit(existing, "move");
+      await assertLocalFolderAllowsPageEdit(existing, "move");
     }
     const ownerEmail = existing.ownerEmail as string;
     const db = getDb();

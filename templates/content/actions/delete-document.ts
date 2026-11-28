@@ -46,6 +46,7 @@ import {
 } from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
+  assertLocalFolderAllowsPageEdit,
   assertSourceAllowsPageEdit,
   releaseRestoredPagesFromGitHubCollections,
 } from "./_document-source.js";
@@ -1501,6 +1502,7 @@ async function trashDocumentWithReceipt(
   const origin = ctx?.caller;
   const access = await assertDocumentMutationAccess(input.id, "admin", "id");
   assertSourceAllowsPageEdit(access.resource, "trash");
+  await assertLocalFolderAllowsPageEdit(access.resource, "trash");
   assertAgentsMayEditPageText(access.resource, ctx);
   const ownerEmail = access.resource.ownerEmail as string;
   const result = await getDb().transaction(async (transaction) => {
@@ -1629,6 +1631,7 @@ export default defineAction({
     const access = await assertDocumentMutationAccess(id, "admin", "id");
     const existing = access.resource;
     assertSourceAllowsPageEdit(existing, "trash");
+    await assertLocalFolderAllowsPageEdit(existing, "trash");
     assertAgentsMayEditPageText(existing, ctx);
     const [systemDatabase] = await db
       .select({ systemRole: schema.contentDatabases.systemRole })

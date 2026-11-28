@@ -54,7 +54,10 @@ import {
   type OpenEditorTitleFlush,
 } from "./_document-flush.js";
 import { lockDocumentForSave } from "./_document-save-locks.js";
-import { assertSourceAllowsPageEdit } from "./_document-source.js";
+import {
+  assertLocalFolderAllowsPageEdit,
+  assertSourceAllowsPageEdit,
+} from "./_document-source.js";
 
 function isLinkedLocalSource(
   documentId: string,
@@ -336,6 +339,7 @@ export default defineAction({
       sourceKind?: string | null;
       sourcePath?: string | null;
     };
+    await assertLocalFolderAllowsPageEdit(access.resource);
     if (isLinkedLocalSource(documentId, source))
       linkedLocalRestoreUnsupported();
     assertSourceAllowsPageEdit(access.resource);

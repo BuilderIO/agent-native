@@ -16,9 +16,13 @@ Files collection. Saving or pushing a page into a file that already exists
 keeps that file's own frontmatter and Markdown and changes only the lines the
 page's edits touched. Preserve frontmatter `id` across renames; missing files
 and concurrent changes become reviewable incoming change sets instead of
-silently deleting or overwriting a page. SQL stores only opaque connection
-identity, relative paths, and hashes. Disconnecting a folder keeps both the
-Content pages and disk files.
+silently deleting or overwriting a page. A folder linked with
+`truthPolicy: "source_primary"` owns its pages' title, body, description and
+place: only the folder sync, and the editor on the device that wrote the file,
+change them, and ordinary writers refuse with `SOURCE_READ_ONLY` (409). Other
+devices and browsers show the last synced copy read-only. SQL stores only
+opaque connection identity, relative paths, and hashes. Disconnecting a folder
+keeps both the Content pages and disk files.
 
 ## Manifest/CLI bridge
 

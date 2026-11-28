@@ -11,6 +11,7 @@ import {
 } from "../shared/github-source.js";
 import { chunks } from "./_batch-utils.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
 
 interface DocumentSourceColumns {
   sourceMode?: string | null;
@@ -111,6 +112,68 @@ export function assertSourceAllowsPageEdit(
         : `This page follows a file in GitHub and is view only here. Edit the file${file}; Content updates after each push.`,
     { errorCode: "SOURCE_READ_ONLY", statusCode: 409 },
   );
+}
+
+export async function assertLocalFolderAllowsPageEdit(
+  document: DocumentSourceColumns & { id: string },
+  change: "edit" | "trash" | "move" = "edit",
+  db: ReturnType<typeof getDb> = getDb(),
+) {
+  if (
+    document.sourceMode !== "local-files" ||
+    document.sourceKind !== "file" ||
+    !document.sourceRootPath
+  ) {
+    return;
+  }
+  const links = await db
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSourceRows)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceRows.sourceId,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.documentId, document.id),
+        eq(schema.contentDatabaseSources.sourceType, LOCAL_FOLDER_SOURCE_TYPE),
+        eq(schema.contentDatabaseSources.sourceTable, document.sourceRootPath),
+      ),
+    );
+  const owner = links
+    .map((link) => localFolderOwner(link.metadataJson))
+    .find((metadata) => metadata !== null);
+  if (owner === undefined) return;
+  const folder = owner.label ? `the folder "${owner.label}"` : "a folder";
+  throw new ActionContractError(
+    change === "trash"
+      ? `This page is owned by ${folder} on a device. Delete its file in that folder on that device, and Content moves the page out of the folder after it syncs.`
+      : change === "move"
+        ? `This page is owned by ${folder} on a device, so it stays where its file is. Move the file in that folder on that device.`
+        : `This page is owned by ${folder} on a device and must be edited there. Open the folder in Content on that device; this copy updates after it syncs.`,
+    { errorCode: "SOURCE_READ_ONLY", statusCode: 409 },
+  );
+}
+
+function localFolderOwner(metadataJson: string) {
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(metadataJson);
+  } catch {
+    throw new ActionContractError(
+      "This page's local folder link can't be read, so Content can't tell whether the folder owns it.",
+      { errorCode: "SOURCE_METADATA_UNREADABLE", statusCode: 500 },
+    );
+  }
+  if (!metadata || typeof metadata !== "object") return null;
+  const { truthPolicy, connectionLabel } = metadata as Record<string, unknown>;
+  if (truthPolicy !== "source_primary") return null;
+  return {
+    label: typeof connectionLabel === "string" ? connectionLabel : null,
+  };
 }
 
 /**

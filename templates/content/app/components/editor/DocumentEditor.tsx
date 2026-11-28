@@ -4678,6 +4678,7 @@ function PageEditorSessionBody({
         source: localSource,
       };
 
+      let writtenLocalSourceRevision: string | undefined;
       if (isLinkedLocalSource) {
         let expectedLocalSourceRevision = localSourceRevisionForSave(
           options.expectedLocalSourceRevision,
@@ -4757,6 +4758,7 @@ function PageEditorSessionBody({
           throw new Error(result.error);
         }
         localSourceRevisionRef.current = result.revision;
+        writtenLocalSourceRevision = result.revision;
         lastSavedTitleRef.current = {
           ...lastSavedTitleRef.current,
           title: fileFirstDocument.title,
@@ -4836,6 +4838,9 @@ function PageEditorSessionBody({
               editorSnapshotTitle: options.editorSnapshotTitle,
               editorSnapshotTitleBase: options.editorSnapshotTitleBase,
               editorSnapshotContent: options.editorSnapshotContent,
+              ...(writtenLocalSourceRevision
+                ? { localSourceRevision: writtenLocalSourceRevision }
+                : {}),
               ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
               ...(baseRevision !== undefined ? { baseRevision } : {}),
               ...(updates.title !== undefined
