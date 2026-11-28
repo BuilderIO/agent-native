@@ -310,8 +310,7 @@ export default defineAction({
     const currentParentById = new Map<string, string | null>();
     const currentPositionById = new Map<string, number>();
 
-    for (let index = 0; index < parsed.length; index += 1) {
-      const file = parsed[index];
+    for (const [index, file] of parsed.entries()) {
       if (file.errors && file.errors.length > 0) {
         errors.push({
           path: file.path,
@@ -851,11 +850,19 @@ export default defineAction({
               spaceId: schema.documents.spaceId,
               trashedAt: schema.documents.trashedAt,
               parentId: schema.documents.parentId,
+              sourceMode: schema.documents.sourceMode,
+              sourceKind: schema.documents.sourceKind,
             })
             .from(schema.documents)
             .where(eq(schema.documents.id, id));
           if (!page || page.trashedAt) {
             return "Skipped layout update: the page was deleted or moved to Trash.";
+          }
+          try {
+            await assertLocalFolderAllowsPageEdit({ id, ...page }, "move", tx);
+          } catch (error) {
+            if (isSourceReadOnlyRefusal(error)) return error.message;
+            throw error;
           }
           if (
             page.ownerEmail !== ownerEmail ||

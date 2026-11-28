@@ -59,6 +59,28 @@ vi.mock("./_document-save-locks.js", async (importOriginal) => {
   };
 });
 
+const databaseLock = vi.hoisted(() => ({
+  before: null as null | ((tx: unknown) => Promise<void>),
+}));
+
+vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("./_content-database-mutation-lock.js")
+    >();
+  return {
+    ...actual,
+    lockContentDatabaseMutation: async (
+      ...args: Parameters<typeof actual.lockContentDatabaseMutation>
+    ) => {
+      const before = databaseLock.before;
+      databaseLock.before = null;
+      await before?.(args[0]);
+      return actual.lockContentDatabaseMutation(...args);
+    },
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `local-folder-page-writes-${process.pid}-${Date.now()}.pglite`,
@@ -97,6 +119,8 @@ let getDatabase: typeof import("./get-content-database.js").default;
 let addRow: typeof import("./add-database-item.js").default;
 let patchRows: typeof import("./patch-database-items.js").default;
 let deleteProperty: typeof import("./delete-document-property.js").default;
+let setProperty: typeof import("./set-document-property.js").default;
+let parseContentSourceFile: typeof import("../shared/content-source.js").parseContentSourceFile;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let writeDocumentToLinkedLocalSource: typeof import("../app/lib/local-content-source-files.js").writeDocumentToLinkedLocalSource;
 
@@ -139,6 +163,8 @@ beforeAll(async () => {
   addRow = (await import("./add-database-item.js")).default;
   patchRows = (await import("./patch-database-items.js")).default;
   deleteProperty = (await import("./delete-document-property.js")).default;
+  setProperty = (await import("./set-document-property.js")).default;
+  ({ parseContentSourceFile } = await import("../shared/content-source.js"));
   ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
   ({ writeDocumentToLinkedLocalSource } =
     await import("../app/lib/local-content-source-files.js"));
@@ -151,12 +177,13 @@ afterAll(() => {
 async function folderPage(
   connectionId: string,
   truthPolicy: "source_primary" | "database_primary" = "source_primary",
+  spaceId?: string,
 ) {
   const connection = await asOwner(() =>
     connectLocalFolder.run({
       connectionId,
       label: "Field notes",
-      createSourceBackedSpace: true,
+      ...(spaceId ? { spaceId } : { createSourceBackedSpace: true }),
       truthPolicy,
     }),
   );
@@ -225,6 +252,7 @@ async function collectionWithRows(titles: string[]) {
   return {
     databaseId,
     databaseDocumentId: created.database.documentId as string,
+    spaceId: (await contract()).target.spaceId,
     rows,
     envelope,
   };
@@ -256,6 +284,29 @@ async function giveRowToFolder(
       sourceQualifiedId: row.documentId,
       sourceDisplayKey: `${row.documentId}.md`,
     });
+}
+
+async function filesCollectionOf(id: string) {
+  const memberships = await getDb()
+    .select({
+      databaseId: schema.contentDatabases.id,
+      primaryBlocksPropertyId: schema.contentDatabases.primaryBlocksPropertyId,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.contentDatabases,
+      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+    )
+    .where(eq(schema.contentDatabaseItems.documentId, id));
+  const files = memberships.find(
+    (membership) => membership.primaryBlocksPropertyId,
+  );
+  if (!files?.primaryBlocksPropertyId)
+    throw new Error("The folder's Files collection has no Blocks field.");
+  return {
+    databaseId: files.databaseId,
+    propertyId: files.primaryBlocksPropertyId,
+  };
 }
 
 async function readPage(id: string) {
@@ -573,8 +624,12 @@ describe("every other writer of a folder's page", () => {
   });
 
   it("refuses a batch of row titles that includes a folder's page and changes none", async () => {
-    const folder = await folderPage("h7-row-batch");
     const collection = await collectionWithRows(["Ordinary", "Folder's"]);
+    const folder = await folderPage(
+      "h7-row-batch",
+      "source_primary",
+      collection.spaceId,
+    );
     const [ordinary, owned] = collection.rows;
     await giveRowToFolder(owned, folder);
 
@@ -601,34 +656,47 @@ describe("every other writer of a folder's page", () => {
   it("keeps a collection's last Blocks field while a folder's page would lose its body", async () => {
     const { id } = await folderPage("h7-blocks-field");
     const before = await readPage(id);
-    const [files] = await getDb()
-      .select({
-        databaseId: schema.contentDatabases.id,
-        primaryBlocksPropertyId:
-          schema.contentDatabases.primaryBlocksPropertyId,
-      })
-      .from(schema.contentDatabaseItems)
-      .innerJoin(
-        schema.contentDatabases,
-        eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
-      )
-      .where(eq(schema.contentDatabaseItems.documentId, id));
-    if (!files.primaryBlocksPropertyId)
-      throw new Error("The folder's Files collection has no Blocks field.");
+    const files = await filesCollectionOf(id);
 
     await expect(
-      asOwner(() =>
-        deleteProperty.run(
+      asOwner(() => deleteProperty.run({ documentId: id, ...files }, person)),
+    ).rejects.toMatchObject(ownedByFolder);
+    expect((await readPage(id)).content).toBe(before.content);
+  });
+
+  it("checks again under the page lock before writing a page's main Blocks field", async () => {
+    const { id, sourceId } = await folderPage(
+      "h7-blocks-after-lock",
+      "database_primary",
+    );
+    const before = await readPage(id);
+    const baseRevision = await revisionOf(id);
+    databaseLock.before = (tx) =>
+      setFolderSettings(
+        sourceId,
+        (metadata) => ({ ...metadata, truthPolicy: "source_primary" }),
+        tx as ReturnType<typeof getDb>,
+      );
+
+    await expect(
+      asOwner(async () =>
+        setProperty.run(
           {
             documentId: id,
-            databaseId: files.databaseId,
-            propertyId: files.primaryBlocksPropertyId as string,
+            ...(await filesCollectionOf(id)),
+            value: "Injected through the Blocks field.",
+            baseRevision,
           },
-          person,
+          outsideAgent,
         ),
       ),
     ).rejects.toMatchObject(ownedByFolder);
-    expect((await readPage(id)).content).toBe(before.content);
+    expect(databaseLock.before).toBeNull();
+    expect(await readPage(id)).toMatchObject({
+      content: before.content,
+      bodyRevision: before.bodyRevision,
+    });
+    expect(await revisionOf(id)).toBe(baseRevision);
   });
 
   it("skips importing Markdown over a folder's page by id or by path, and the folder still syncs", async () => {
@@ -677,6 +745,43 @@ describe("every other writer of a folder's page", () => {
     expect((await readPage(id)).content).toBe(
       "# Field notes\n\nStill synced.\n",
     );
+  });
+
+  it("leaves a folder's page where it is when an unchanged import names another place for it", async () => {
+    const { id } = await folderPage("h7-import-layout");
+    const path = "field/notes.md";
+    const text = `---\nid: ${id}\nposition: 7\n---\n\n# Field notes\n\nFrom disk.\n`;
+    const file = parseContentSourceFile(path, text);
+    await getDb()
+      .update(schema.documents)
+      .set({
+        title: file.title,
+        content: file.content,
+        sourcePath: path,
+        sourceRootPath: "field",
+      })
+      .where(eq(schema.documents.id, id));
+    const before = await readPage(id);
+    expect(before.position).not.toBe(7);
+
+    const result = await asOwner(() =>
+      importContentSource.run(
+        { files: { [path]: text }, dryRun: false },
+        outsideAgent,
+      ),
+    );
+
+    expect(result.unchanged.map((page) => page.id)).toEqual([id]);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({
+        path,
+        reason: expect.stringContaining("stays where its file is"),
+      }),
+    ]);
+    expect(await readPage(id)).toMatchObject({
+      parentId: before.parentId,
+      position: before.position,
+    });
   });
 
   it("refuses linking a folder's page to Notion, and pulling Notion into one already linked", async () => {
@@ -739,17 +844,16 @@ describe("every other writer of a folder's page", () => {
   });
 });
 
-describe("a page whose folder link can't be read", () => {
-  it("stays the folder's when the folder's settings lose their policy", async () => {
+describe("which pages a folder owns", () => {
+  it("leaves a page editable when its folder stores no policy", async () => {
     const { id, sourceId } = await folderPage("h7-no-policy");
     await setFolderSettings(sourceId, ({ truthPolicy: _, ...rest }) => rest);
 
-    await expect(
-      asOwner(() => updateDocument.run({ id, title: "Renamed" }, person)),
-    ).rejects.toMatchObject(ownedByFolder);
+    await asOwner(() => updateDocument.run({ id, title: "Renamed" }, person));
+    expect((await readPage(id)).title).toBe("Renamed");
   });
 
-  it("stays the folder's when its markers name another root", async () => {
+  it("goes by the page's folder link when its markers name another root", async () => {
     const { id } = await folderPage("h7-other-root");
     await getDb()
       .update(schema.documents)
@@ -758,10 +862,31 @@ describe("a page whose folder link can't be read", () => {
 
     await expect(
       asOwner(() => updateDocument.run({ id, title: "Renamed" }, person)),
-    ).rejects.toMatchObject({
-      errorCode: "SOURCE_READ_ONLY",
-      message: expect.stringContaining("owned by a folder on a device"),
-    });
+    ).rejects.toMatchObject(ownedByFolder);
+  });
+
+  it("leaves a page editable once its folder's link is gone", async () => {
+    const { id, sourceId } = await folderPage("h7-source-gone");
+    await getDb()
+      .delete(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, sourceId));
+
+    await asOwner(() => updateDocument.run({ id, title: "Renamed" }, person));
+    expect((await readPage(id)).title).toBe("Renamed");
+  });
+
+  it("refuses a write when its folder's settings can't be read", async () => {
+    const { id, sourceId } = await folderPage("h7-unreadable");
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ metadataJson: "{" })
+      .where(eq(schema.contentDatabaseSources.id, sourceId));
+    const before = await readPage(id);
+
+    await expect(
+      asOwner(() => updateDocument.run({ id, title: "Renamed" }, person)),
+    ).rejects.toMatchObject({ errorCode: "SOURCE_METADATA_UNREADABLE" });
+    expect((await readPage(id)).title).toBe(before.title);
   });
 
   it("leaves a page imported from Markdown, with no folder, editable", async () => {

@@ -512,6 +512,8 @@ export default defineAction({
           .select({
             trashedAt: schema.documents.trashedAt,
             agentTextLocked: schema.documents.agentTextLocked,
+            sourceMode: schema.documents.sourceMode,
+            sourceKind: schema.documents.sourceKind,
           })
           .from(schema.documents)
           .where(eq(schema.documents.id, documentId));
@@ -580,6 +582,11 @@ export default defineAction({
           );
           return;
         }
+        await assertLocalFolderAllowsPageEdit(
+          { id: documentId, ...lockedPage },
+          "edit",
+          tx as unknown as ReturnType<typeof getDb>,
+        );
         const legacy = await lockLegacyBodyWrites(tx, [documentId], {
           operation: "set-document-property",
           content,

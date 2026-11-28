@@ -334,8 +334,7 @@ export default defineAction({
     }) => {
       const metadata = parseJson(source.metadataJson);
       return {
-        policy:
-          localFolderTruthPolicy(metadata.truthPolicy) ?? "database_primary",
+        policy: localFolderTruthPolicy(metadata.truthPolicy),
         localIdentity:
           localFolderSourceIdentityFromMetadata(metadata.localIdentity) ??
           normalizeLocalFolderSourceIdentity({

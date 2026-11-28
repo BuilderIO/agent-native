@@ -117,19 +117,17 @@ export function assertSourceAllowsPageEdit(
   );
 }
 
-type LocalFolderPage = DocumentSourceColumns & {
-  id: string;
-  spaceId?: string | null;
-};
 type LocalFolderChange = "edit" | "trash" | "move";
 
 export async function assertLocalFolderAllowsPageEdit(
-  document: LocalFolderPage,
+  document: DocumentSourceColumns & { id: string },
   change: LocalFolderChange = "edit",
   db: ReturnType<typeof getDb> = getDb(),
 ) {
-  const owned = (await localFolderOwnedPages(db, [document])).at(0);
-  if (owned) throw localFolderOwnsPage(owned.label, change);
+  if (document.sourceMode !== "local-files" || document.sourceKind !== "file")
+    return;
+  const label = (await localFolderOwners(db, [document.id])).get(document.id);
+  if (label !== undefined) throw localFolderOwnsPage(label, change);
 }
 
 export async function assertLocalFolderAllowsPagesEdit(
@@ -138,126 +136,68 @@ export async function assertLocalFolderAllowsPagesEdit(
   change: "edit" | "trash" = "edit",
   { rootId }: { rootId?: string } = {},
 ) {
-  const pages: LocalFolderPage[] = [];
-  for (const batch of chunks([...new Set(documentIds)], 500)) {
-    pages.push(
-      ...(await db
-        .select({
-          id: schema.documents.id,
-          spaceId: schema.documents.spaceId,
-          sourceMode: schema.documents.sourceMode,
-          sourceKind: schema.documents.sourceKind,
-          sourceRootPath: schema.documents.sourceRootPath,
-        })
-        .from(schema.documents)
-        .where(
-          and(
-            inArray(schema.documents.id, batch),
-            eq(schema.documents.sourceMode, "local-files"),
-            eq(schema.documents.sourceKind, "file"),
-          ),
-        )),
-    );
-  }
-  const owned = await localFolderOwnedPages(db, pages);
-  if (!owned.length) return;
-  const root = owned.find((page) => page.id === rootId);
-  throw localFolderOwnsPage((root ?? owned[0]).label, change, {
-    nested: rootId !== undefined && !root,
-    documentIds: owned.map((page) => page.id),
-  });
+  const owners = await localFolderOwners(db, documentIds);
+  const first = owners.values().next();
+  if (first.done) return;
+  const rootLabel = rootId === undefined ? undefined : owners.get(rootId);
+  throw localFolderOwnsPage(
+    rootLabel === undefined ? first.value : rootLabel,
+    change,
+    {
+      nested: rootId !== undefined && rootLabel === undefined,
+      documentIds: [...owners.keys()],
+    },
+  );
 }
 
-async function localFolderOwnedPages(
+async function localFolderOwners(
   db: ReturnType<typeof getDb>,
-  pages: LocalFolderPage[],
+  documentIds: string[],
 ) {
-  const marked = pages.filter(
-    (page): page is LocalFolderPage & { sourceRootPath: string } =>
-      page.sourceMode === "local-files" &&
-      page.sourceKind === "file" &&
-      !!page.sourceRootPath,
-  );
-  if (!marked.length) return [];
+  const documents = schema.documents;
   const sources = schema.contentDatabaseSources;
   const sourceRows = schema.contentDatabaseSourceRows;
-  const folderLinks = new Map<string, Set<string>>();
-  for (const batch of chunks(
-    marked.map((page) => page.id),
-    500,
-  )) {
-    for (const link of await db
+  const owners = new Map<string, string | null>();
+  for (const batch of chunks([...new Set(documentIds)], 500)) {
+    // guard:allow-unscoped — callers have checked access to these pages; this reads only which folder links own them.
+    const links = await db
       .select({
-        documentId: sourceRows.documentId,
-        sourceId: sourceRows.sourceId,
-        sourceType: sources.sourceType,
+        documentId: documents.id,
+        metadataJson: sources.metadataJson,
       })
-      .from(sourceRows)
-      .leftJoin(sources, eq(sources.id, sourceRows.sourceId))
-      .where(inArray(sourceRows.documentId, batch))) {
-      if (
-        link.sourceType !== null &&
-        link.sourceType !== LOCAL_FOLDER_SOURCE_TYPE
+      .from(documents)
+      .innerJoin(sourceRows, eq(sourceRows.documentId, documents.id))
+      .innerJoin(
+        sources,
+        and(
+          eq(sources.id, sourceRows.sourceId),
+          eq(sources.sourceType, LOCAL_FOLDER_SOURCE_TYPE),
+        ),
       )
-        continue;
-      const linked = folderLinks.get(link.documentId) ?? new Set<string>();
-      linked.add(link.sourceId);
-      folderLinks.set(link.documentId, linked);
-    }
-  }
-  const folders: Array<{
-    id: string;
-    sourceTable: string;
-    metadataJson: string;
-    spaceId: string | null;
-  }> = [];
-  for (const batch of chunks(
-    [...new Set(marked.map((page) => page.sourceRootPath))],
-    500,
-  )) {
-    folders.push(
-      ...(await db
-        .select({
-          id: sources.id,
-          sourceTable: sources.sourceTable,
-          metadataJson: sources.metadataJson,
-          spaceId: schema.contentDatabases.spaceId,
-        })
-        .from(sources)
-        .innerJoin(
-          schema.contentDatabases,
+      .innerJoin(
+        schema.contentDatabases,
+        and(
           eq(schema.contentDatabases.id, sources.databaseId),
-        )
-        .where(
-          and(
-            eq(sources.sourceType, LOCAL_FOLDER_SOURCE_TYPE),
-            inArray(sources.sourceTable, batch),
-          ),
-        )),
-    );
-  }
-  return marked.flatMap((page) => {
-    const linked = folderLinks.get(page.id);
-    const pageFolders = folders.filter(
-      (folder) =>
-        folder.sourceTable === page.sourceRootPath &&
-        (linked?.has(folder.id) ||
-          !page.spaceId ||
-          folder.spaceId === page.spaceId),
-    );
-    if (!pageFolders.length) {
-      return linked ? [{ id: page.id, label: null }] : [];
-    }
-    for (const folder of pageFolders) {
-      const settings = localFolderSettings(folder.metadataJson);
-      if (
-        settings.truthPolicy === null ||
-        settings.truthPolicy === "source_primary"
+          eq(schema.contentDatabases.spaceId, documents.spaceId),
+        ),
       )
-        return [{ id: page.id, label: settings.label }];
+      .where(
+        and(
+          inArray(documents.id, batch),
+          eq(documents.sourceMode, "local-files"),
+          eq(documents.sourceKind, "file"),
+        ),
+      );
+    for (const link of links) {
+      const settings = localFolderSettings(link.metadataJson);
+      if (
+        settings.truthPolicy === "source_primary" &&
+        !owners.has(link.documentId)
+      )
+        owners.set(link.documentId, settings.label);
     }
-    return [];
-  });
+  }
+  return owners;
 }
 
 function localFolderSettings(metadataJson: string) {
